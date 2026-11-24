@@ -13,7 +13,7 @@
   "format": "mac12"
  },
  "token": {
-  "min": 32,
+  "min": 12,
   "max": 64
  },
  "poll": {
@@ -27,6 +27,8 @@
   "cfg set remote on"
  ],
  "setup_help": "Connect the USB cable, open the serial console and paste these three lines. The device checks in within a minute.",
+ "ap_help": "A new device opens its own WiFi network by itself. One that is already set up opens it with “Open setup mode” on its page here, or by itself after a few refused WiFi logins.",
+ "ap_page": "192.168.4.1",
  "groups": [
   {
    "id": "wifi",
@@ -200,7 +202,7 @@
    "label": "Device token",
    "help": "Typed into the device. The server never changes it.",
    "default": "",
-   "min": 32,
+   "min": 12,
    "max": 64,
    "secret": true,
    "locked": true

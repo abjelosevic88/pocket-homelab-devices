@@ -279,9 +279,9 @@ func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name and place are at most 80 characters")
 		return
 	}
-	token := store.RandomToken(20)
+	token := store.NewDeviceToken()
 	d := &store.Device{Kind: k.ID, Name: in.Name, HWID: hwid, Location: strings.TrimSpace(in.Location), Notes: strings.TrimSpace(in.Notes),
-		TokenHash: store.HashToken(token), TokenHint: token[:6], PollS: k.Poll.Default, NotifyOffline: in.NotifyOffline == nil || *in.NotifyOffline}
+		TokenHash: store.HashDeviceToken(token), TokenHint: store.NormalizeDeviceToken(token)[:4], PollS: k.Poll.Default, NotifyOffline: in.NotifyOffline == nil || *in.NotifyOffline}
 	if err := s.store.CreateDevice(ctx, actorID(ctx), d, actorName(ctx)); err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			writeErr(w, http.StatusConflict, "a device with this "+strings.ToLower(k.HWID.Label)+" is already on this server")
@@ -293,6 +293,7 @@ func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {
 	url := s.deviceURL(ctx)
 	out := s.deviceDetail(ctx, d)
 	out["token"], out["setup"], out["setup_help"] = token, setupLines(k, url, token), k.SetupHelp
+	out["ap_help"], out["ap_page"] = k.APHelp, k.APPage
 	writeJSON(w, http.StatusCreated, out)
 }
 
@@ -372,8 +373,8 @@ func (s *Server) handleNewToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	k, _ := kinds.Get(d.Kind)
-	token := store.RandomToken(20)
-	if err := s.store.SetDeviceToken(ctx, uid, d.ID, store.HashToken(token), token[:6]); err != nil {
+	token := store.NewDeviceToken()
+	if err := s.store.SetDeviceToken(ctx, uid, d.ID, store.HashDeviceToken(token), store.NormalizeDeviceToken(token)[:4]); err != nil {
 		s.fail(w, err, "new token")
 		return
 	}
@@ -383,6 +384,7 @@ func (s *Server) handleNewToken(w http.ResponseWriter, r *http.Request) {
 	out["token"] = token
 	if k != nil {
 		out["setup"], out["setup_help"] = setupLines(k, s.deviceURL(ctx), token), k.SetupHelp
+		out["ap_help"], out["ap_page"] = k.APHelp, k.APPage
 	}
 	writeJSON(w, http.StatusOK, out)
 }

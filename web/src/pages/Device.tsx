@@ -79,7 +79,7 @@ function Overview({ d, kind, reload, go }: { d: DeviceDetail; kind?: Kind; reloa
   if (dev.state === 'new') {
     return (
       <div className="stack loose">
-        <div className="callout info"><Icon name="plug" size={15} /><div><b>Waiting for the first check-in.</b> Paste the three lines into the device’s console (you saw them when you added it). Lost the token? Make a new one on the <button type="button" className="linkish" onClick={() => go('connection')}>Connection</button> tab.</div></div>
+        <div className="callout info"><Icon name="plug" size={15} /><div><b>Waiting for the first check-in.</b> Paste the three lines into the device’s console, or fill in its setup page from your phone (you saw both when you added it). Lost the token? Make a new one on the <button type="button" className="linkish" onClick={() => go('connection')}>Connection</button> tab.</div></div>
         {dev.pending > 0 && <p className="muted small">The settings you already chose here go out with the first answer.</p>}
       </div>
     )
@@ -538,6 +538,7 @@ function ConnectionTab({ d, kind, onSaved }: { d: DeviceDetail; kind: Kind; onSa
         <div className="console mt">
           {kind.setup.map(l => <div key={l} className="console-line"><code>{l.replace('{url}', d.server_url).replace('{token}', '<the token>')}</code></div>)}
         </div>
+        <p className="muted small mt">Or on the device’s own setup page (its WiFi network, from your phone): your WiFi name and password, <b>Server address</b> <code>{d.server_url}</code> and the <b>Token</b>.</p>
         <div className="row wrap mt"><button type="button" className="btn" onClick={() => setAsk('token')}><Icon name="key" size={15} />Make a new token</button></div>
       </section>
       <section className="card danger-zone">

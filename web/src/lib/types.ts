@@ -41,7 +41,7 @@ export interface Kind {
   hw_id: { label: string; help: string; example: string; format: string }
   token: { min: number; max: number }
   poll: { default: number; min: number; max: number }
-  setup: string[]; setup_help: string
+  setup: string[]; setup_help: string; ap_help: string; ap_page: string
   groups: { id: string; label: string }[]
   settings: SettingDef[]
   commands: CommandDef[]
@@ -65,7 +65,7 @@ export interface Device {
 export interface SettingRowT { key: string; desired: string | null; reported: string | null; secret_set?: boolean; pending: boolean; error?: string; changed_at?: string }
 export interface DeviceDetail {
   device: Device; settings: SettingRowT[]; server_url: string
-  token?: string; setup?: string[]; setup_help?: string
+  token?: string; setup?: string[]; setup_help?: string; ap_help?: string; ap_page?: string
 }
 export interface Command { id: number; device_id: number; name: string; args: Record<string, unknown>; state: 'queued' | 'sent' | 'done' | 'failed' | 'cancelled'; result: string; actor: string; created_at: string; sent_at: string; done_at: string }
 export interface LogEntry { id: number; device_id: number; at: string; actor: string; action: string; key: string; old: string; new: string; detail: string }

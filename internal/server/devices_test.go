@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -115,8 +116,11 @@ func (a *app) addClock(auth, mac string) (int64, string, *sim.Device, *sim.Clien
 	a.t.Helper()
 	m := a.expect(201, auth, "POST", "/api/v1/devices", map[string]any{"kind": "ntp-clock", "name": "Clock " + mac[:4], "hw_id": mac, "location": "Bedroom"})
 	tok, _ := m["token"].(string)
-	if len(tok) < 32 || len(tok) > 64 {
-		a.t.Fatalf("token %q is not 32..64 characters", tok)
+	if !regexp.MustCompile(`^[2-9a-hjkmnp-z]{4}-[2-9a-hjkmnp-z]{4}-[2-9a-hjkmnp-z]{4}$`).MatchString(tok) {
+		a.t.Fatalf("token %q is not xxxx-xxxx-xxxx", tok)
+	}
+	if m["ap_page"] != "192.168.4.1" || m["ap_help"] == "" {
+		a.t.Fatalf("setup page: %v %v", m["ap_page"], m["ap_help"])
 	}
 	setup, _ := m["setup"].([]any)
 	if len(setup) != 3 || setup[0] != "cfg set server_url https://devices.test" || setup[1] != "cfg set device_token "+tok || setup[2] != "cfg set remote on" {

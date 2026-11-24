@@ -37,7 +37,7 @@ var protocolRanges = map[string][2]int{
 	"date_secs": {0, 3600}, "temp_secs": {0, 3600}, "alarm_page_secs": {0, 3600}, "brightness": {1, 100}, "bright_min": {1, 100},
 	"ldr_dark_mv": {1, 3300}, "ldr_bright_mv": {2, 3300}, "alarm_secs": {1, 600}, "alarm_sound": {0, 6}, "place": {0, 47},
 	"lat": {-90, 90}, "lon": {-180, 180}, "weather_poll": {5, 1440}, "wifi_tx": {2, 20}, "ap_fallback_n": {0, 100},
-	"server_url": {1, 96}, "device_token": {32, 64}, "remote_poll_s": {10, 3600},
+	"server_url": {1, 96}, "device_token": {12, 64}, "remote_poll_s": {10, 3600},
 }
 
 func TestTableMatchesProtocol(t *testing.T) {

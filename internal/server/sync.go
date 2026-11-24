@@ -93,7 +93,7 @@ func (s *Server) handleDeviceSync(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err, "device")
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(store.HashToken(tok)), []byte(d.TokenHash)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(store.HashDeviceToken(tok)), []byte(d.TokenHash)) != 1 {
 		s.limits.fail(ip)
 		s.log.Info("device: wrong token", "device", d.HWID, "ip", ip)
 		writeErr(w, http.StatusUnauthorized, "wrong token")

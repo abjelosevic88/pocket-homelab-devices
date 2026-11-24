@@ -1,12 +1,12 @@
 // Add a device: kind, name, hardware id, place — then the token, shown once,
-// with the exact console lines to paste into the device.
+// with the console lines for the device, or the fields of its setup page.
 import React, { useState } from 'react'
 import { api, V1 } from '../lib/api'
 import { CATEGORY_LABEL, POWER_LABEL, kindIcon, useKinds } from '../lib/devices'
 import type { DeviceDetail } from '../lib/types'
 import { Icon } from './icons'
 import { Select } from './Select'
-import { Field, Loading, Modal, useToast } from './ui'
+import { Field, Loading, Modal, Segmented, useToast } from './ui'
 import { useDevices } from './Layout'
 
 export function AddDeviceModal({ onClose, onAdded }: { onClose: () => void; onAdded: (d: DeviceDetail) => void }) {
@@ -31,7 +31,7 @@ export function AddDeviceModal({ onClose, onAdded }: { onClose: () => void; onAd
   if (made) {
     return (
       <Modal title={`Connect ${made.device.name}`} onClose={() => onAdded(made)} size="lg"
-        footer={<button type="button" className="btn primary" onClick={() => onAdded(made)}>Done, I pasted them</button>}>
+        footer={<button type="button" className="btn primary" onClick={() => onAdded(made)}>Done</button>}>
         <SetupSteps detail={made} onCopied={() => toast('Copied')} />
       </Modal>
     )
@@ -81,22 +81,49 @@ export function AddDeviceModal({ onClose, onAdded }: { onClose: () => void; onAd
   )
 }
 
-/** The token (once) and the lines for the device's console. */
+type SetupWay = 'usb' | 'phone'
+const WAY_KEY = 'pdev-setup-way'
+
+/** The token (once) and the two ways to give it to the device: the lines
+ * for its USB console, or the fields of its own setup page (the device's
+ * WiFi network, opened from a phone). */
 export function SetupSteps({ detail, onCopied }: { detail: DeviceDetail; onCopied: () => void }) {
   const lines = detail.setup || []
+  const [way, setWay] = useState<SetupWay>(() => (localStorage.getItem(WAY_KEY) as SetupWay) || 'usb')
+  const pick = (w: SetupWay) => { setWay(w); localStorage.setItem(WAY_KEY, w) }
   const copy = (t: string) => { navigator.clipboard?.writeText(t).then(onCopied).catch(() => {}) }
   const insecure = !detail.server_url.startsWith('https://')
+  const copyBtn = (t: string, what: string) => <button type="button" className="btn ghost sm icon-only" aria-label={`Copy ${what}`} title={`Copy ${what}`} onClick={() => copy(t)}><Icon name="copy" size={14} /></button>
   return (
     <div className="stack">
-      <p>{detail.setup_help}</p>
-      <div className="console">
-        {lines.map(l => (
-          <div key={l} className="console-line"><code>{l}</code><button type="button" className="btn ghost sm icon-only" aria-label="Copy this line" title="Copy this line" onClick={() => copy(l)}><Icon name="copy" size={14} /></button></div>
-        ))}
-      </div>
-      <div className="row wrap"><button type="button" className="btn" onClick={() => copy(lines.join('\n'))}><Icon name="copy" size={15} />Copy all three lines</button></div>
+      <Segmented label="How to set it up" value={way} onChange={pick} options={[
+        { value: 'usb', label: 'USB cable' },
+        { value: 'phone', label: 'Phone, setup page' },
+      ]} />
+      {way === 'usb' ? <>
+        <p>{detail.setup_help}</p>
+        <div className="console">
+          {lines.map(l => (
+            <div key={l} className="console-line"><code>{l}</code>{copyBtn(l, 'this line')}</div>
+          ))}
+        </div>
+        <div className="row wrap"><button type="button" className="btn" onClick={() => copy(lines.join('\n'))}><Icon name="copy" size={15} />Copy all three lines</button></div>
+      </> : <>
+        <ol className="ap-steps">
+          <li><b>Open its setup network.</b> {detail.ap_help}</li>
+          <li><b>Join that WiFi network on your phone.</b> The setup page opens by itself; if it does not, open <code>http://{detail.ap_page || '192.168.4.1'}</code> in the browser.</li>
+          <li><b>Fill in the four fields and save.</b> The device joins your WiFi and checks in here within a minute.</li>
+        </ol>
+        <dl className="ap-fields">
+          <div><dt>WiFi name</dt><dd className="muted">your home WiFi</dd></div>
+          <div><dt>WiFi password</dt><dd className="muted">its password</dd></div>
+          <div><dt>Server address</dt><dd><code className="ap-value">{detail.server_url}</code>{copyBtn(detail.server_url, 'the server address')}</dd></div>
+          {detail.token && <div><dt>Token</dt><dd><code className="ap-value ap-token">{detail.token}</code>{copyBtn(detail.token, 'the token')}</dd></div>}
+        </dl>
+        <p className="muted small">While your phone is on the device’s network it has no internet, but this page stays open: switch back to it to copy. Dashes and capital letters in the token do not matter.</p>
+      </>}
       <div className="callout warn"><Icon name="key" size={15} /><div>The token is shown <b>only now</b>. If you lose it, make a new one on the device’s Connection tab; the old one stops working at once.</div></div>
-      {insecure && <div className="callout danger"><Icon name="alert" size={15} /><div>The address is not https://. The clock only talks to a server with a real certificate: set the address for your devices in Settings → General.</div></div>}
+      {insecure && <div className="callout danger"><Icon name="alert" size={15} /><div>The address is not https://. The device only talks to a server with a real certificate: set the address for your devices in Settings → General.</div></div>}
     </div>
   )
 }

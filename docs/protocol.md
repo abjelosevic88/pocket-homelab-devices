@@ -20,9 +20,18 @@ set through this protocol; the console stays as it is.
   `https://clock.example.com` (no trailing slash).
 - Device id: the WiFi MAC address, 12 upper case hex digits, e.g. `A1B2C3D4E5F6`.
 - Authentication: header `Authorization: Bearer <device_token>`. The token is a
-  random secret of 32 to 64 characters, one per device, created on the server
-  and typed into the clock (`cfg set device_token ...`). The server stores
-  only a hash. A wrong token gives `401`.
+  random secret, one per device, created on the server and typed into the
+  clock (`cfg set device_token ...`, or the Token field of its setup page).
+  Pocket Devices makes short tokens that are easy to type on a phone:
+  12 characters from `23456789abcdefghjkmnpqrstuvwxyz` in groups of four,
+  e.g. `k7m4-x9qp-3hrt` (14 with the dashes). The server ignores dashes,
+  spaces and capital letters, so `K7M4X9QP3HRT` works as well. The clock must
+  accept 12 to 64 characters (older 40-character tokens keep working). The
+  server stores only a hash. A wrong token gives `401`.
+- The clock's own setup page (its WiFi network, setup mode) has four fields:
+  WiFi name, WiFi password, server address (`server_url`) and token
+  (`device_token`). Pocket Devices shows both
+  ways when a device is added: the console lines and the setup-page values.
 - Bodies are JSON (`Content-Type: application/json`, UTF-8), at most 8 KiB.
 
 ## The one endpoint: `POST /api/v1/device/sync`
@@ -167,7 +176,7 @@ Type: `text`, `number` (integer with range), `bool` (`on`/`off`), `hhmm`
 | `log` | bool | | off | log lines on the serial console |
 | `remote` | bool | | off | the clock talks to the server (never changed by it) |
 | `server_url` | text | https URL, 1 .. 96 | empty | never changed by the server |
-| `device_token` | text (secret) | 32 .. 64 | empty | never changed by the server |
+| `device_token` | text (secret) | 12 .. 64 | empty | never changed by the server |
 | `remote_poll_s` | number | 10 .. 3600 | 30 | default poll interval when the server gives none |
 
 The authoritative list of keys and rules is `app/cfg/src/cfg.c`; the server

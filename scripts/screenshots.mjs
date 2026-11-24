@@ -97,6 +97,10 @@ async function deviceId(page, name) {
   await page.waitForTimeout(800)
   assert.ok((await page.content()).includes('cfg set device_token'), 'adding shows the console lines')
   await shot(page, 'desktop-add')
+  await page.getByRole('radio', { name: 'Phone, setup page' }).click()
+  await page.waitForTimeout(200)
+  assert.match(await page.locator('.ap-token').innerText(), /^[2-9a-hjkmnp-z]{4}-[2-9a-hjkmnp-z]{4}-[2-9a-hjkmnp-z]{4}$/, 'the setup page shows a short token')
+  await shot(page, 'desktop-add-phone')
   await ctx.close()
 }
 

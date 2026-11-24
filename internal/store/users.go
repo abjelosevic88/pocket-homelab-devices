@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"time"
 )
 
@@ -106,6 +107,39 @@ func RandomToken(n int) string {
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+// deviceTokenChars are easy to read and type: no 0/o, 1/l/i.
+const deviceTokenChars = "23456789abcdefghjkmnpqrstuvwxyz"
+
+// NewDeviceToken returns a short token that is easy to type on a phone,
+// like "k7m4-x9qp-3hrt": 12 characters (~59 bits), shown in groups of
+// four. Guessing is held back by the per-address limit on wrong tokens.
+func NewDeviceToken() string {
+	var b strings.Builder
+	buf := make([]byte, 1)
+	for n := 0; n < 12; {
+		_, _ = rand.Read(buf)
+		if int(buf[0]) >= 256-256%len(deviceTokenChars) {
+			continue // keeps every character equally likely
+		}
+		if n > 0 && n%4 == 0 {
+			b.WriteByte('-')
+		}
+		b.WriteByte(deviceTokenChars[int(buf[0])%len(deviceTokenChars)])
+		n++
+	}
+	return b.String()
+}
+
+// NormalizeDeviceToken is the form a device token is hashed in: dashes
+// and spaces dropped, lower case — so "K7M4 X9QP 3HRT" works too. Older
+// hex tokens are unchanged by it.
+func NormalizeDeviceToken(t string) string {
+	return strings.ToLower(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(t)))
+}
+
+// HashDeviceToken hashes a device token in its normal form.
+func HashDeviceToken(t string) string { return HashToken(NormalizeDeviceToken(t)) }
 
 // HashToken returns the sha256 hex digest of a token.
 func HashToken(t string) string {

@@ -159,15 +159,20 @@ type Kind struct {
 		Min     int `json:"min"`
 		Max     int `json:"max"`
 	} `json:"poll"`
-	Setup     []string          `json:"setup"`
-	SetupHelp string            `json:"setup_help"`
-	Groups    []Group           `json:"groups"`
-	Settings  []Setting         `json:"settings"`
-	Commands  []Command         `json:"commands"`
-	Readings  []Reading         `json:"readings"`
-	Alerts    []Alert           `json:"alerts"`
-	Events    []Event           `json:"events"`
-	Warnings  map[string]string `json:"warnings"`
+	Setup     []string `json:"setup"`
+	SetupHelp string   `json:"setup_help"`
+	// The device's own setup network (access point): how to open it and
+	// the address of its setup page, where the person types the WiFi
+	// login, the server address and the token.
+	APHelp   string            `json:"ap_help"`
+	APPage   string            `json:"ap_page"`
+	Groups   []Group           `json:"groups"`
+	Settings []Setting         `json:"settings"`
+	Commands []Command         `json:"commands"`
+	Readings []Reading         `json:"readings"`
+	Alerts   []Alert           `json:"alerts"`
+	Events   []Event           `json:"events"`
+	Warnings map[string]string `json:"warnings"`
 
 	byKey map[string]*Setting
 }
@@ -229,7 +234,7 @@ func Parse(b []byte) (*Kind, error) {
 		s.DefaultOK = err == nil
 	}
 	if k.Token.Min == 0 {
-		k.Token.Min, k.Token.Max = 32, 64
+		k.Token.Min, k.Token.Max = 12, 64
 	}
 	readings := map[string]*Reading{}
 	for i := range k.Readings {
