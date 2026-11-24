@@ -12,6 +12,7 @@ export function Sidebar({ onCreate, onNavigate, devices }: { onCreate: (k: Creat
   const online = list.filter(d => d.state === 'online').length
   const offline = list.filter(d => d.state === 'offline').length
   const waiting = list.filter(d => d.pending > 0 || d.queued > 0).length
+  const alerting = list.filter(d => d.alerts.length > 0).length
   const nav: { to: string; label: string; icon: string; end?: boolean; count?: string }[] = [
     { to: '/', label: 'All devices', icon: 'cpu', end: true, count: list.length ? String(list.length) : undefined },
   ]
@@ -48,6 +49,7 @@ export function Sidebar({ onCreate, onNavigate, devices }: { onCreate: (k: Creat
         <section className="sb-sec sb-health" aria-label="At a glance">
           <div className="sb-health-row"><span className="dot-state online" />{online} online</div>
           <div className="sb-health-row"><span className={`dot-state ${offline ? 'offline' : 'none'}`} />{offline} offline</div>
+          {alerting > 0 && <div className="sb-health-row"><span className="dot-state alert" />{alerting} with an alert</div>}
           {waiting > 0 && <div className="sb-health-row"><span className="dot-state pending" />{waiting} waiting for a check-in</div>}
         </section>
       )}
@@ -60,7 +62,7 @@ export function Sidebar({ onCreate, onNavigate, devices }: { onCreate: (k: Creat
               <NavLink key={d.id} to={`/devices/${d.id}`} onClick={onNavigate} className={({ isActive }) => `sb-dev ${isActive ? 'active' : ''}`}>
                 <span className={`dot-state ${d.state}`} title={d.state} />
                 <span className="ellipsis grow">{d.name}</span>
-                {d.summary.ringing && <Icon name="bell" size={13} className="ringing" title="Alarm ringing" />}
+                {d.alerts.length > 0 && <Icon name="alert" size={13} className={`dev-alert-ico ${d.alerts.some(a => a.level === 'alarm') ? 'alarm' : 'warning'}`} title={d.alerts.map(a => a.label).join(', ')} />}
               </NavLink>
             ))}
           </div>

@@ -17,8 +17,8 @@ import (
 // in linkRoutes stays closed to it (403).
 
 var linkOffers = []core.Offer{
-	{Scope: "devices:read", Name: "See your devices", Description: "Read your devices: name, place, whether they are online, what they report (temperature, WiFi signal, alarm) and their settings — for your dashboards, your day and Pocket AI. Never WiFi passwords or device tokens."},
-	{Scope: "devices:write", Name: "Change device settings", Description: "Change your devices' settings (an alarm time, the brightness) and send everyday commands like \"stop the alarm\" or \"sync the time\". Never restart a device, open its setup mode or erase it."},
+	{Scope: "devices:read", Name: "See your devices", Description: "Read your devices: name, place, whether they are online, what they report (temperature, CO₂, a door open, battery), their alerts, button presses and other events, and their settings — for your dashboards, your day, your flows and Pocket AI. Never WiFi passwords or device tokens."},
+	{Scope: "devices:write", Name: "Change device settings", Description: "Change your devices' settings (an alarm time, a CO₂ limit) and send everyday commands like \"switch the plug on\" or \"stop the alarm\". Never restart a device, open its setup mode or erase it."},
 }
 
 // portable is what Pocket Move may copy out and bring in for a person
@@ -42,7 +42,7 @@ type linkRoute struct {
 var linkRoutes = []linkRoute{
 	{"GET", regexp.MustCompile(`^/api/v1/auth/me$`), ""},
 	{"GET", regexp.MustCompile(`^/api/v1/(devices|kinds|overview)$`), "devices:read"},
-	{"GET", regexp.MustCompile(`^/api/v1/devices/\d+(/commands|/log|/samples)?$`), "devices:read"},
+	{"GET", regexp.MustCompile(`^/api/v1/devices/\d+(/commands|/log|/readings|/events)?$`), "devices:read"},
 	{"PUT", regexp.MustCompile(`^/api/v1/devices/\d+/settings$`), "devices:write"},
 	{"POST", regexp.MustCompile(`^/api/v1/devices/\d+/commands$`), "devices:write"},
 }

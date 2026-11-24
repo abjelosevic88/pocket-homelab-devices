@@ -43,6 +43,7 @@ type Device struct {
 	Status        json.RawMessage   `json:"status"`
 	Reported      map[string]string `json:"-"`
 	ConfigErrors  map[string]string `json:"config_errors"`
+	Alerts        map[string]string `json:"-"` // alert id → since
 	Online        bool              `json:"-"`
 	NotifyOffline bool              `json:"notify_offline"`
 	Demo          bool              `json:"demo"`
@@ -86,11 +87,13 @@ type LogEntry struct {
 	Detail   string `json:"detail"`
 }
 
-// Sample is one 5-minute point of what a device reported.
-type Sample struct {
-	At    string   `json:"at"`
-	RSSI  *int     `json:"rssi"`
-	TempC *float64 `json:"temp_c"`
+// Event is something a device told as it happened (a press, a door opening).
+type Event struct {
+	ID       int64          `json:"id"`
+	DeviceID int64          `json:"device_id"`
+	Type     string         `json:"type"`
+	Data     map[string]any `json:"data"`
+	At       string         `json:"at"`
 }
 
 // Settings are the box-wide values plus one person's preferences and their
@@ -109,6 +112,7 @@ type Settings struct {
 	// Notifications.
 	NotifyOffline bool   `json:"notify_offline"` // a device stopped checking in
 	NotifyRefused bool   `json:"notify_refused"` // a device refused a setting
+	NotifyAlerts  bool   `json:"notify_alerts"`  // a reading crossed a line: water, battery low, CO2 high
 	NotifyURL     string `json:"notify_url"`
 	NotifyFormat  string `json:"notify_format"` // apprise | ntfy | json
 

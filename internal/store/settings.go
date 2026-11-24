@@ -14,7 +14,7 @@ var boxKeys = map[string]bool{"title": true, "setup_complete": true, "device_url
 
 // defaults returns the settings a person starts with.
 func (s *Store) defaults() Settings {
-	return Settings{Title: DefaultTitle, DateFormat: "auto", TimeFormat: "auto", NotifyOffline: true, NotifyRefused: true, NotifyFormat: "apprise"}
+	return Settings{Title: DefaultTitle, DateFormat: "auto", TimeFormat: "auto", NotifyOffline: true, NotifyRefused: true, NotifyAlerts: true, NotifyFormat: "apprise"}
 }
 
 // Every setting is stored as its JSON value under its JSON name, so adding a

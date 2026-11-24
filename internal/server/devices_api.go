@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +25,21 @@ type deviceView struct {
 	State    string         `json:"state"` // online | offline | new
 	Pending  int            `json:"pending"`
 	Queued   int            `json:"queued"`
-	Summary  map[string]any `json:"summary"`
+	Summary  map[string]any `json:"summary"`  // what every device reports: fw, uptime, WiFi
+	Readings map[string]any `json:"readings"` // the kind's readings, by key
+	Alerts   []alertView    `json:"alerts"`   // alerts that hold now
+	Icon     string         `json:"icon"`
+	Category string         `json:"category"`
+	Power    string         `json:"power"`
+}
+
+type alertView struct {
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	Level  string `json:"level"`
+	Text   string `json:"text"`
+	Since  string `json:"since"`
+	Action string `json:"action,omitempty"`
 }
 
 // settingView is one row of a device's settings: what you want next to what it has.
@@ -61,21 +76,12 @@ func (s *Server) view(ctx context.Context, d *store.Device, now time.Time) devic
 	var st struct {
 		FW      string `json:"fw"`
 		UptimeS *int64 `json:"uptime_s"`
+		Reset   string `json:"reset_reason"`
 		WiFi    *struct {
 			SSID string `json:"ssid"`
 			RSSI *int   `json:"rssi"`
 			IP   string `json:"ip"`
 		} `json:"wifi"`
-		Time *struct {
-			Synced bool `json:"synced"`
-		} `json:"time"`
-		Weather *struct {
-			Place string   `json:"place"`
-			TempC *float64 `json:"temp_c"`
-		} `json:"weather"`
-		Alarm *struct {
-			Ringing bool `json:"ringing"`
-		} `json:"alarm"`
 	}
 	_ = json.Unmarshal(d.Status, &st)
 	if st.FW != "" {
@@ -84,27 +90,28 @@ func (s *Server) view(ctx context.Context, d *store.Device, now time.Time) devic
 	if st.UptimeS != nil {
 		v.Summary["uptime_s"] = *st.UptimeS
 	}
+	if st.Reset != "" {
+		v.Summary["reset_reason"] = st.Reset
+	}
 	if st.WiFi != nil {
 		v.Summary["ssid"], v.Summary["ip"] = st.WiFi.SSID, st.WiFi.IP
 		if st.WiFi.RSSI != nil {
 			v.Summary["rssi"] = *st.WiFi.RSSI
 		}
 	}
-	if st.Time != nil {
-		v.Summary["time_synced"] = st.Time.Synced
-	}
-	if st.Weather != nil && st.Weather.TempC != nil {
-		v.Summary["temp_c"], v.Summary["place"] = *st.Weather.TempC, st.Weather.Place
-	}
-	if st.Alarm != nil {
-		v.Summary["ringing"] = st.Alarm.Ringing
-	}
-	if a := d.Reported["alarm"]; a != "" {
-		v.Summary["alarm_on"] = a == "on"
-		v.Summary["alarm_time"], v.Summary["alarm_days"] = d.Reported["alarm_time"], d.Reported["alarm_days"]
-	}
-	if u := d.Reported["temp_unit"]; u != "" {
-		v.Summary["temp_unit"] = u
+	v.Readings, v.Alerts = map[string]any{}, []alertView{}
+	if ok {
+		v.Icon, v.Category, v.Power = k.Icon, k.Category, k.Power
+		var status map[string]any
+		_ = json.Unmarshal(d.Status, &status)
+		v.Readings = k.Values(status, d.Reported)
+		for _, a := range k.Alerts {
+			since, on := d.Alerts[a.ID]
+			if !on {
+				continue
+			}
+			v.Alerts = append(v.Alerts, alertView{ID: a.ID, Label: a.Label, Level: a.Level, Text: alertText(&a, d.Name, k, v.Readings), Since: since, Action: a.Action})
+		}
 	}
 	return v
 }
@@ -200,15 +207,15 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
-	counts := map[string]int{"total": len(ds), "online": 0, "offline": 0, "new": 0, "pending": 0, "ringing": 0}
+	counts := map[string]int{"total": len(ds), "online": 0, "offline": 0, "new": 0, "pending": 0, "alerts": 0}
 	for i := range ds {
 		v := s.view(ctx, &ds[i], now)
 		counts[v.State]++
 		if v.Pending > 0 {
 			counts["pending"]++
 		}
-		if v.Summary["ringing"] == true {
-			counts["ringing"]++
+		if len(v.Alerts) > 0 {
+			counts["alerts"]++
 		}
 	}
 	writeJSON(w, http.StatusOK, counts)
@@ -250,12 +257,13 @@ func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if in.Kind == "" && len(kinds.All()) == 1 {
-		in.Kind = kinds.All()[0].ID
-	}
 	k, ok := kinds.Get(in.Kind)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "unknown kind of device")
+		ids := make([]string, 0, len(kinds.All()))
+		for _, x := range kinds.All() {
+			ids = append(ids, x.ID)
+		}
+		writeErr(w, http.StatusBadRequest, "kind is one of "+strings.Join(ids, ", "))
 		return
 	}
 	hwid, err := k.NormalizeHWID(in.HWID)
@@ -556,7 +564,12 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 	for _, a := range c.Args {
 		raw, ok := in.Args[a.Name]
 		if !ok {
-			args[a.Name] = a.Default
+			args[a.Name] = int(a.Default)
+			if a.DefaultSetting != "" {
+				if n, err := strconv.Atoi(d.Reported[a.DefaultSetting]); err == nil && float64(n) >= a.Min && float64(n) <= a.Max {
+					args[a.Name] = n
+				}
+			}
 			continue
 		}
 		f, ok := raw.(float64)
@@ -603,7 +616,8 @@ func (s *Server) handleDeviceLog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, l)
 }
 
-func (s *Server) handleSamples(w http.ResponseWriter, r *http.Request) {
+// handleReadings returns the 5-minute history of a device's chart readings.
+func (s *Server) handleReadings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	uid := actorID(ctx)
 	if _, err := s.store.GetDevice(ctx, uid, idParam(r, "id")); err != nil {
@@ -614,12 +628,28 @@ func (s *Server) handleSamples(w http.ResponseWriter, r *http.Request) {
 	if hours <= 0 || hours > 24*30 {
 		hours = 48
 	}
-	ps, err := s.store.Samples(ctx, uid, idParam(r, "id"), time.Now().Add(-time.Duration(hours)*time.Hour))
+	rs, err := s.store.Readings(ctx, uid, idParam(r, "id"), time.Now().Add(-time.Duration(hours)*time.Hour))
 	if err != nil {
-		s.fail(w, err, "samples")
+		s.fail(w, err, "readings")
 		return
 	}
-	writeJSON(w, http.StatusOK, ps)
+	writeJSON(w, http.StatusOK, rs)
+}
+
+// handleEvents returns what a device told as it happened, newest first.
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	uid := actorID(ctx)
+	if _, err := s.store.GetDevice(ctx, uid, idParam(r, "id")); err != nil {
+		s.fail(w, err, "device")
+		return
+	}
+	es, err := s.store.ListEvents(ctx, uid, idParam(r, "id"), int64(queryInt(r, "before")), queryInt(r, "limit"))
+	if err != nil {
+		s.fail(w, err, "events")
+		return
+	}
+	writeJSON(w, http.StatusOK, es)
 }
 
 // handlePosixTZ turns an IANA zone ("Europe/Sarajevo") into the POSIX

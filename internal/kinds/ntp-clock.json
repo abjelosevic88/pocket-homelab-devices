@@ -720,7 +720,8 @@
      "type": "number",
      "min": 0,
      "max": 6,
-     "default": 0
+     "default": 0,
+     "default_setting": "alarm_sound"
     }
    ]
   },
@@ -743,11 +744,90 @@
    "danger": 2
   }
  ],
- "status": {
-  "temp_path": "weather.temp_c",
-  "rssi_path": "wifi.rssi"
- },
  "warnings": {
   "wifi": "If the clock cannot log in to the new network it opens its own setup network after a few refused logins (\"Refused logins before setup mode\")."
- }
+ },
+ "category": "clock",
+ "power": "usb",
+ "readings": [
+  {
+   "key": "alarm",
+   "path": "config.alarm",
+   "label": "Alarm",
+   "type": "bool",
+   "on": "On",
+   "off": "Off",
+   "icon": "alarm-clock",
+   "card": true,
+   "sub": "alarm_time"
+  },
+  {
+   "key": "alarm_time",
+   "path": "config.alarm_time",
+   "label": "Wake-up time",
+   "type": "text",
+   "icon": "alarm-clock"
+  },
+  {
+   "key": "ringing",
+   "path": "alarm.ringing",
+   "label": "Ringing",
+   "type": "bool",
+   "on": "Ringing",
+   "off": "Quiet",
+   "icon": "bell"
+  },
+  {
+   "key": "temp_c",
+   "path": "weather.temp_c",
+   "label": "Outdoor temperature",
+   "type": "number",
+   "unit": "°C",
+   "decimals": 1,
+   "icon": "thermometer",
+   "chart": true,
+   "card": true
+  },
+  {
+   "key": "synced",
+   "path": "time.synced",
+   "label": "Time",
+   "type": "bool",
+   "on": "In sync",
+   "off": "Not synced",
+   "icon": "clock"
+  },
+  {
+   "key": "rssi",
+   "path": "wifi.rssi",
+   "label": "WiFi signal",
+   "type": "number",
+   "unit": "dBm",
+   "icon": "wifi",
+   "chart": true
+  }
+ ],
+ "alerts": [
+  {
+   "id": "ringing",
+   "reading": "ringing",
+   "op": "=",
+   "bool": true,
+   "label": "Alarm ringing",
+   "text": "The alarm of {name} is ringing.",
+   "level": "alarm",
+   "action": "alarm_stop"
+  },
+  {
+   "id": "time_lost",
+   "reading": "synced",
+   "op": "=",
+   "bool": false,
+   "label": "Time not in sync",
+   "text": "{name} could not reach its time server for a while.",
+   "level": "warning",
+   "action": "sync_time"
+  }
+ ],
+ "events": []
 }

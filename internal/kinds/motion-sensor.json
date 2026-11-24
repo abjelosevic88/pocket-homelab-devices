@@ -1,0 +1,286 @@
+{
+ "id": "motion-sensor",
+ "name": "Motion sensor",
+ "protocol": "pocket-sync/1",
+ "category": "sensor",
+ "power": "battery",
+ "icon": "activity",
+ "summary": "A battery motion sensor (ESP32-C3 with a PIR sensor and a light sensor). Says when someone moves and when the room is quiet again, and how bright it is.",
+ "hw_id": {
+  "label": "WiFi MAC address",
+  "help": "12 characters, printed at start-up and by the “wifi” command on the serial console.",
+  "example": "A1B2C3D4E5F6",
+  "format": "mac12"
+ },
+ "token": {
+  "min": 32,
+  "max": 64
+ },
+ "poll": {
+  "default": 3600,
+  "min": 300,
+  "max": 86400
+ },
+ "setup": [
+  "cfg set server_url {url}",
+  "cfg set device_token {token}",
+  "cfg set remote on"
+ ],
+ "setup_help": "Connect the USB cable (it wakes the sensor), open the serial console and paste these three lines. It sleeps between check-ins to save the battery, so changes and commands reach it at its next check-in (or right after it wakes up for something).",
+ "groups": [
+  {
+   "id": "wifi",
+   "label": "WiFi"
+  },
+  {
+   "id": "motion",
+   "label": "Motion"
+  },
+  {
+   "id": "light",
+   "label": "Light"
+  },
+  {
+   "id": "system",
+   "label": "System"
+  },
+  {
+   "id": "server",
+   "label": "Server"
+  }
+ ],
+ "settings": [
+  {
+   "key": "ssid",
+   "type": "text",
+   "group": "wifi",
+   "label": "WiFi network",
+   "help": "The name of the WiFi network the device joins.",
+   "default": "",
+   "min": 1,
+   "max": 32,
+   "warn": "wifi"
+  },
+  {
+   "key": "pass",
+   "type": "text",
+   "group": "wifi",
+   "label": "WiFi password",
+   "help": "Empty for an open network, otherwise 8 to 64 characters. Never shown again once saved.",
+   "default": "",
+   "min": 8,
+   "max": 64,
+   "allow_empty": true,
+   "secret": true,
+   "warn": "wifi"
+  },
+  {
+   "key": "hostname",
+   "type": "text",
+   "group": "wifi",
+   "label": "Name on the network",
+   "help": "The name the device gives your router (DHCP host name).",
+   "default": "apx-motion",
+   "min": 1,
+   "max": 32,
+   "format": "hostname"
+  },
+  {
+   "key": "sensitivity",
+   "type": "enum",
+   "group": "motion",
+   "label": "Sensitivity",
+   "help": "Lower it if a pet or a curtain sets it off.",
+   "default": "medium",
+   "options": [
+    {
+     "value": "low",
+     "label": "Low"
+    },
+    {
+     "value": "medium",
+     "label": "Medium"
+    },
+    {
+     "value": "high",
+     "label": "High"
+    }
+   ]
+  },
+  {
+   "key": "hold_s",
+   "type": "number",
+   "group": "motion",
+   "label": "Quiet again after",
+   "help": "Seconds without motion before it reports the room quiet.",
+   "default": "60",
+   "min": 5,
+   "max": 3600,
+   "unit": "s"
+  },
+  {
+   "key": "lux_report",
+   "type": "bool",
+   "group": "light",
+   "label": "Report how bright it is",
+   "help": "",
+   "default": "on"
+  },
+  {
+   "key": "led",
+   "type": "bool",
+   "group": "light",
+   "label": "Blink on motion",
+   "help": "Handy while placing it; off saves battery.",
+   "default": "off"
+  },
+  {
+   "key": "log",
+   "type": "bool",
+   "group": "system",
+   "label": "Log on the serial console",
+   "help": "",
+   "default": "off",
+   "advanced": true
+  },
+  {
+   "key": "remote",
+   "type": "bool",
+   "group": "server",
+   "label": "Talks to this server",
+   "help": "Switched on at the device itself (cfg set remote on). The server never changes it.",
+   "default": "off",
+   "locked": true
+  },
+  {
+   "key": "server_url",
+   "type": "text",
+   "group": "server",
+   "label": "Server address",
+   "help": "Typed into the device. The server never changes it.",
+   "default": "",
+   "min": 1,
+   "max": 96,
+   "format": "https_url",
+   "locked": true
+  },
+  {
+   "key": "device_token",
+   "type": "text",
+   "group": "server",
+   "label": "Device token",
+   "help": "Typed into the device. The server never changes it.",
+   "default": "",
+   "min": 32,
+   "max": 64,
+   "secret": true,
+   "locked": true
+  },
+  {
+   "key": "remote_poll_s",
+   "type": "number",
+   "group": "server",
+   "label": "Check in when nothing happens",
+   "help": "Seconds between two check-ins without motion.",
+   "default": "3600",
+   "min": 300,
+   "max": 86400,
+   "unit": "s",
+   "advanced": true
+  }
+ ],
+ "commands": [
+  {
+   "name": "identify",
+   "label": "Find it",
+   "help": "The light blinks for 10 seconds, so you know which one it is."
+  },
+  {
+   "name": "reboot",
+   "label": "Restart",
+   "help": "The device restarts after its next check-in.",
+   "danger": 1
+  },
+  {
+   "name": "setup_mode",
+   "label": "Open setup mode",
+   "help": "The device restarts into its own WiFi network for the setup page. It stops checking in here until it is back on your WiFi.",
+   "danger": 1
+  },
+  {
+   "name": "cfg_reset",
+   "label": "Erase all settings",
+   "help": "The device forgets everything, including the WiFi login and this server. You will have to set it up again at the device.",
+   "danger": 2
+  }
+ ],
+ "readings": [
+  {
+   "key": "motion",
+   "path": "motion.active",
+   "label": "Motion",
+   "type": "bool",
+   "on": "Motion",
+   "off": "Quiet",
+   "icon": "activity",
+   "card": true
+  },
+  {
+   "key": "lux",
+   "path": "light.lux",
+   "label": "Brightness",
+   "type": "number",
+   "unit": "lx",
+   "icon": "sun",
+   "chart": true,
+   "card": true,
+   "min": 0
+  },
+  {
+   "key": "battery",
+   "path": "battery.pct",
+   "label": "Battery",
+   "type": "number",
+   "unit": "%",
+   "icon": "battery",
+   "card": true,
+   "chart": true,
+   "min": 0
+  },
+  {
+   "key": "rssi",
+   "path": "wifi.rssi",
+   "label": "WiFi signal",
+   "type": "number",
+   "unit": "dBm",
+   "icon": "wifi",
+   "chart": true
+  }
+ ],
+ "alerts": [
+  {
+   "id": "battery_low",
+   "reading": "battery",
+   "op": "<",
+   "value": 15,
+   "label": "Battery low",
+   "text": "{name}: battery at {value} {unit}. Time for new batteries.",
+   "level": "warning"
+  }
+ ],
+ "events": [
+  {
+   "type": "motion",
+   "label": "Motion",
+   "icon": "activity"
+  },
+  {
+   "type": "quiet",
+   "label": "Quiet again",
+   "icon": "moon"
+  }
+ ],
+ "warnings": {
+  "wifi": "If the device cannot log in to the new network it opens its own setup network after a few refused logins."
+ }
+}

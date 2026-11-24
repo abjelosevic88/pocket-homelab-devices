@@ -1,0 +1,395 @@
+{
+ "id": "climate-sensor",
+ "name": "Climate sensor",
+ "protocol": "pocket-sync/1",
+ "category": "sensor",
+ "power": "battery",
+ "icon": "thermometer",
+ "summary": "A small battery sensor (ESP32-C3 with an SHT41 or BME280) for temperature, humidity and air pressure, with an optional e-paper screen. Warns you when a room gets too warm, too cold or too damp.",
+ "hw_id": {
+  "label": "WiFi MAC address",
+  "help": "12 characters, printed at start-up and by the “wifi” command on the serial console.",
+  "example": "A1B2C3D4E5F6",
+  "format": "mac12"
+ },
+ "token": {
+  "min": 32,
+  "max": 64
+ },
+ "poll": {
+  "default": 300,
+  "min": 60,
+  "max": 86400
+ },
+ "setup": [
+  "cfg set server_url {url}",
+  "cfg set device_token {token}",
+  "cfg set remote on"
+ ],
+ "setup_help": "Connect the USB cable, open the serial console and paste these three lines. It sleeps between check-ins to save the battery, so changes and commands reach it at its next check-in (or right after it wakes up for something).",
+ "groups": [
+  {
+   "id": "wifi",
+   "label": "WiFi"
+  },
+  {
+   "id": "measure",
+   "label": "Measuring"
+  },
+  {
+   "id": "alerts",
+   "label": "Alerts"
+  },
+  {
+   "id": "screen",
+   "label": "Screen and light"
+  },
+  {
+   "id": "system",
+   "label": "System"
+  },
+  {
+   "id": "server",
+   "label": "Server"
+  }
+ ],
+ "settings": [
+  {
+   "key": "ssid",
+   "type": "text",
+   "group": "wifi",
+   "label": "WiFi network",
+   "help": "The name of the WiFi network the device joins.",
+   "default": "",
+   "min": 1,
+   "max": 32,
+   "warn": "wifi"
+  },
+  {
+   "key": "pass",
+   "type": "text",
+   "group": "wifi",
+   "label": "WiFi password",
+   "help": "Empty for an open network, otherwise 8 to 64 characters. Never shown again once saved.",
+   "default": "",
+   "min": 8,
+   "max": 64,
+   "allow_empty": true,
+   "secret": true,
+   "warn": "wifi"
+  },
+  {
+   "key": "hostname",
+   "type": "text",
+   "group": "wifi",
+   "label": "Name on the network",
+   "help": "The name the device gives your router (DHCP host name).",
+   "default": "apx-climate",
+   "min": 1,
+   "max": 32,
+   "format": "hostname"
+  },
+  {
+   "key": "measure_s",
+   "type": "number",
+   "group": "measure",
+   "label": "Measure every",
+   "help": "Seconds between two measurements. Longer saves battery.",
+   "default": "60",
+   "min": 10,
+   "max": 3600,
+   "unit": "s"
+  },
+  {
+   "key": "temp_offset",
+   "type": "decimal",
+   "group": "measure",
+   "label": "Temperature correction",
+   "help": "Added to every reading, for a sensor that reads a little high or low.",
+   "default": "0.0",
+   "min": -5,
+   "max": 5,
+   "decimals": 1,
+   "unit": "°C"
+  },
+  {
+   "key": "hum_offset",
+   "type": "decimal",
+   "group": "measure",
+   "label": "Humidity correction",
+   "help": "",
+   "default": "0.0",
+   "min": -10,
+   "max": 10,
+   "decimals": 1,
+   "unit": "%"
+  },
+  {
+   "key": "temp_unit",
+   "type": "enum",
+   "group": "measure",
+   "label": "Temperature unit",
+   "help": "On the device's screen.",
+   "default": "c",
+   "options": [
+    {
+     "value": "c",
+     "label": "°C"
+    },
+    {
+     "value": "f",
+     "label": "°F"
+    }
+   ]
+  },
+  {
+   "key": "alert_temp",
+   "type": "bool",
+   "group": "alerts",
+   "label": "Temperature alerts",
+   "help": "Tell me when it gets warmer or colder than below.",
+   "default": "off"
+  },
+  {
+   "key": "temp_high",
+   "type": "decimal",
+   "group": "alerts",
+   "label": "Too warm above",
+   "help": "",
+   "default": "28.0",
+   "min": -20,
+   "max": 60,
+   "decimals": 1,
+   "unit": "°C"
+  },
+  {
+   "key": "temp_low",
+   "type": "decimal",
+   "group": "alerts",
+   "label": "Too cold below",
+   "help": "",
+   "default": "16.0",
+   "min": -20,
+   "max": 60,
+   "decimals": 1,
+   "unit": "°C"
+  },
+  {
+   "key": "alert_hum",
+   "type": "bool",
+   "group": "alerts",
+   "label": "Damp alert",
+   "help": "Tell me when the air is damper than below (mould risk).",
+   "default": "off"
+  },
+  {
+   "key": "hum_high",
+   "type": "number",
+   "group": "alerts",
+   "label": "Too damp above",
+   "help": "",
+   "default": "65",
+   "min": 30,
+   "max": 100,
+   "unit": "%"
+  },
+  {
+   "key": "screen",
+   "type": "bool",
+   "group": "screen",
+   "label": "Show values on the screen",
+   "help": "Only when an e-paper screen is fitted.",
+   "default": "on"
+  },
+  {
+   "key": "led",
+   "type": "bool",
+   "group": "screen",
+   "label": "Blink when measuring",
+   "help": "",
+   "default": "off"
+  },
+  {
+   "key": "log",
+   "type": "bool",
+   "group": "system",
+   "label": "Log on the serial console",
+   "help": "",
+   "default": "off",
+   "advanced": true
+  },
+  {
+   "key": "remote",
+   "type": "bool",
+   "group": "server",
+   "label": "Talks to this server",
+   "help": "Switched on at the device itself (cfg set remote on). The server never changes it.",
+   "default": "off",
+   "locked": true
+  },
+  {
+   "key": "server_url",
+   "type": "text",
+   "group": "server",
+   "label": "Server address",
+   "help": "Typed into the device. The server never changes it.",
+   "default": "",
+   "min": 1,
+   "max": 96,
+   "format": "https_url",
+   "locked": true
+  },
+  {
+   "key": "device_token",
+   "type": "text",
+   "group": "server",
+   "label": "Device token",
+   "help": "Typed into the device. The server never changes it.",
+   "default": "",
+   "min": 32,
+   "max": 64,
+   "secret": true,
+   "locked": true
+  },
+  {
+   "key": "remote_poll_s",
+   "type": "number",
+   "group": "server",
+   "label": "Check in every",
+   "help": "Seconds between two check-ins. Longer saves battery.",
+   "default": "300",
+   "min": 60,
+   "max": 86400,
+   "unit": "s",
+   "advanced": true
+  }
+ ],
+ "commands": [
+  {
+   "name": "measure_now",
+   "label": "Measure now",
+   "help": "Take a measurement at the next check-in."
+  },
+  {
+   "name": "identify",
+   "label": "Find it",
+   "help": "The light blinks for 10 seconds, so you know which one it is."
+  },
+  {
+   "name": "reboot",
+   "label": "Restart",
+   "help": "The device restarts after its next check-in.",
+   "danger": 1
+  },
+  {
+   "name": "setup_mode",
+   "label": "Open setup mode",
+   "help": "The device restarts into its own WiFi network for the setup page. It stops checking in here until it is back on your WiFi.",
+   "danger": 1
+  },
+  {
+   "name": "cfg_reset",
+   "label": "Erase all settings",
+   "help": "The device forgets everything, including the WiFi login and this server. You will have to set it up again at the device.",
+   "danger": 2
+  }
+ ],
+ "readings": [
+  {
+   "key": "temp_c",
+   "path": "climate.temp_c",
+   "label": "Temperature",
+   "type": "number",
+   "unit": "°C",
+   "decimals": 1,
+   "icon": "thermometer",
+   "chart": true,
+   "card": true
+  },
+  {
+   "key": "humidity",
+   "path": "climate.humidity",
+   "label": "Humidity",
+   "type": "number",
+   "unit": "%",
+   "icon": "droplet",
+   "chart": true,
+   "card": true,
+   "min": 0
+  },
+  {
+   "key": "pressure",
+   "path": "climate.pressure_hpa",
+   "label": "Air pressure",
+   "type": "number",
+   "unit": "hPa",
+   "icon": "gauge",
+   "chart": true
+  },
+  {
+   "key": "battery",
+   "path": "battery.pct",
+   "label": "Battery",
+   "type": "number",
+   "unit": "%",
+   "icon": "battery",
+   "card": true,
+   "chart": true,
+   "min": 0
+  },
+  {
+   "key": "rssi",
+   "path": "wifi.rssi",
+   "label": "WiFi signal",
+   "type": "number",
+   "unit": "dBm",
+   "icon": "wifi",
+   "chart": true
+  }
+ ],
+ "alerts": [
+  {
+   "id": "too_warm",
+   "reading": "temp_c",
+   "op": ">",
+   "setting": "temp_high",
+   "enabled_setting": "alert_temp",
+   "label": "Too warm",
+   "text": "{name}: {value} {unit}, warmer than you set.",
+   "level": "warning"
+  },
+  {
+   "id": "too_cold",
+   "reading": "temp_c",
+   "op": "<",
+   "setting": "temp_low",
+   "enabled_setting": "alert_temp",
+   "label": "Too cold",
+   "text": "{name}: {value} {unit}, colder than you set.",
+   "level": "warning"
+  },
+  {
+   "id": "too_damp",
+   "reading": "humidity",
+   "op": ">",
+   "setting": "hum_high",
+   "enabled_setting": "alert_hum",
+   "label": "Too damp",
+   "text": "{name}: {value} {unit} humidity. Air the room.",
+   "level": "warning"
+  },
+  {
+   "id": "battery_low",
+   "reading": "battery",
+   "op": "<",
+   "value": 15,
+   "label": "Battery low",
+   "text": "{name}: battery at {value} {unit}. Time for new batteries.",
+   "level": "warning"
+  }
+ ],
+ "events": [],
+ "warnings": {
+  "wifi": "If the device cannot log in to the new network it opens its own setup network after a few refused logins."
+ }
+}

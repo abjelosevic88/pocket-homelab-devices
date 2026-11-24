@@ -25,6 +25,14 @@ export function checkValue(def: SettingDef, v: string): string {
       if ((def.min !== undefined && n < def.min) || (def.max !== undefined && n > def.max)) return range
       return ''
     }
+    case 'decimal': {
+      const t = v.trim().replace(',', '.')
+      if (!/^[+-]?\d+(\.\d+)?$/.test(t)) return 'A number like 1.5'
+      if ((t.split('.')[1] || '').length > (def.decimals || 0)) return `At most ${def.decimals || 0} decimals`
+      const n = Number(t)
+      if ((def.min !== undefined && n < def.min) || (def.max !== undefined && n > def.max)) return range
+      return ''
+    }
     case 'hhmm': return /^([01]?\d|2[0-3]):[0-5]\d$/.test(v) ? '' : 'A time 00:00 to 23:59'
     case 'text': {
       const n = [...v].length
@@ -52,6 +60,13 @@ export function SettingControl({ def, value, onChange, disabled }: { def: Settin
       return (
         <span className="num-field">
           <input type="number" inputMode="numeric" min={def.min} max={def.max} step={1} value={value} disabled={disabled} onChange={e => onChange(e.target.value)} aria-label={def.label} />
+          {def.unit && <span className="muted small">{def.unit}</span>}
+        </span>
+      )
+    case 'decimal':
+      return (
+        <span className="num-field">
+          <input inputMode="decimal" value={value} disabled={disabled} onChange={e => onChange(e.target.value.replace(',', '.'))} aria-label={def.label} />
           {def.unit && <span className="muted small">{def.unit}</span>}
         </span>
       )

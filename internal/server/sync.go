@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -34,10 +35,11 @@ type syncReq struct {
 	Config         map[string]string     `json:"config"`
 	ConfigErrors   map[string]string     `json:"config_errors"`
 	CommandResults []store.CommandResult `json:"command_results"`
+	Events         []map[string]any      `json:"events"`
 }
 
 // statusDrop are the request fields that are not status.
-var statusDrop = []string{"device_id", "config", "config_rev", "config_errors", "command_results"}
+var statusDrop = []string{"device_id", "config", "config_rev", "config_errors", "command_results", "events"}
 
 func bearer(r *http.Request) string {
 	h := r.Header.Get("Authorization")
@@ -146,17 +148,21 @@ func (s *Server) syncDevice(ctx context.Context, d *store.Device, raw []byte, re
 			in.Config[key] = v
 		}
 	}
-	if p := k.Status["rssi_path"]; p != "" {
-		if f, ok := pathNumber(all, p); ok {
-			v := int(f)
-			in.RSSI = &v
+	// readings: the kind's chart readings are kept in 5-minute buckets
+	var statusMap map[string]any
+	_ = json.Unmarshal(status, &statusMap)
+	reported := d.Reported
+	if in.Config != nil {
+		reported = in.Config
+	}
+	values := k.Values(statusMap, reported)
+	in.Readings = map[string]float64{}
+	for _, r := range k.Readings {
+		if f, ok := values[r.Key].(float64); ok && r.Chart && !math.IsNaN(f) && !math.IsInf(f, 0) {
+			in.Readings[r.Key] = f
 		}
 	}
-	if p := k.Status["temp_path"]; p != "" {
-		if f, ok := pathNumber(all, p); ok {
-			in.TempC = &f
-		}
-	}
+	in.Events = deviceEvents(k, req.Events, in.Now)
 	out, err := s.store.Sync(ctx, d, k, in)
 	if err != nil {
 		return nil, err
@@ -182,8 +188,122 @@ func (s *Server) syncDevice(ctx context.Context, d *store.Device, raw []byte, re
 		t["tz"] = out.TZ
 	}
 	resp["time"] = t
-	s.afterSync(d, out)
+	raised, cleared := s.checkAlerts(ctx, d, k, values, reported)
+	s.afterSync(d, k, out, raised, cleared, values)
 	return resp, nil
+}
+
+// deviceEvents keeps the events of a kind it knows (at most 20 a request),
+// with only the fields the kind declares and their allowed values.
+func deviceEvents(k *kinds.Kind, raw []map[string]any, now time.Time) []store.EventIn {
+	var out []store.EventIn
+	for _, e := range raw {
+		if len(out) >= 20 {
+			break
+		}
+		typ, _ := e["type"].(string)
+		def, ok := k.Event(typ)
+		if !ok {
+			continue
+		}
+		in := store.EventIn{Type: typ, Data: map[string]any{}}
+		if id, ok := e["id"].(string); ok && len(id) <= 64 {
+			in.ExtID = id
+		}
+		if at, ok := e["at"].(float64); ok && at > 1e9 {
+			in.At = time.Unix(int64(at), 0)
+		}
+		for _, f := range def.Fields {
+			v, ok := e[f.Name].(string)
+			if !ok {
+				continue
+			}
+			if len(f.Options) > 0 && !hasOpt(f.Options, v) {
+				continue
+			}
+			if len(v) <= 64 {
+				in.Data[f.Name] = v
+			}
+		}
+		_ = now
+		out = append(out, in)
+	}
+	return out
+}
+
+func hasOpt(opts []kinds.Option, v string) bool {
+	for _, o := range opts {
+		if o.Value == v {
+			return true
+		}
+	}
+	return false
+}
+
+// checkAlerts compares the alerts that hold now with the ones stored, keeps
+// the new set and logs every change.
+func (s *Server) checkAlerts(ctx context.Context, d *store.Device, k *kinds.Kind, values map[string]any, settings map[string]string) (raised, cleared []string) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	active := map[string]string{}
+	for _, id := range k.ActiveAlerts(values, settings) {
+		if since, ok := d.Alerts[id]; ok {
+			active[id] = since
+		} else {
+			active[id] = now
+			raised = append(raised, id)
+		}
+	}
+	for id := range d.Alerts {
+		if _, still := active[id]; !still {
+			cleared = append(cleared, id)
+		}
+	}
+	if len(raised) == 0 && len(cleared) == 0 {
+		return nil, nil
+	}
+	if err := s.store.SetAlerts(ctx, d.ID, active); err != nil {
+		s.log.Warn("alerts", "device", d.ID, "err", err)
+		return nil, nil
+	}
+	for _, id := range raised {
+		a, _ := k.Alert(id)
+		_ = s.store.AddLog(ctx, d.UserID, d.ID, store.LogEntry{Actor: "device", Action: "alert", Key: id, Detail: alertText(a, d.Name, k, values)})
+	}
+	for _, id := range cleared {
+		label := id
+		if a, ok := k.Alert(id); ok {
+			label = a.Label
+		}
+		_ = s.store.AddLog(ctx, d.UserID, d.ID, store.LogEntry{Actor: "device", Action: "alert_cleared", Key: id, Detail: label})
+	}
+	return raised, cleared
+}
+
+// alertText fills in an alert's message: {name}, {value}, {unit}.
+func alertText(a *kinds.Alert, name string, k *kinds.Kind, values map[string]any) string {
+	if a == nil {
+		return ""
+	}
+	txt := a.Text
+	if txt == "" {
+		txt = a.Label
+	}
+	val, unit := "", ""
+	if r, ok := k.Reading(a.Reading); ok {
+		unit = r.Unit
+		switch v := values[a.Reading].(type) {
+		case float64:
+			val = strconv.FormatFloat(v, 'f', r.Decimals, 64)
+		case bool:
+			val = r.Off
+			if v {
+				val = r.On
+			}
+		case string:
+			val = v
+		}
+	}
+	return strings.NewReplacer("{name}", name, "{value}", val, "{unit}", unit).Replace(txt)
 }
 
 // pathNumber reads a number at "a.b" in the report.
@@ -209,8 +329,8 @@ func pathNumber(all map[string]json.RawMessage, path string) (float64, bool) {
 
 // afterSync tells the person what happened (events and notifications), in
 // the background so the device gets its answer at once.
-func (s *Server) afterSync(d *store.Device, out *store.SyncOut) {
-	if !out.FirstSeen && !out.CameOnline && len(out.Refused) == 0 {
+func (s *Server) afterSync(d *store.Device, k *kinds.Kind, out *store.SyncOut, raised, cleared []string, values map[string]any) {
+	if !out.FirstSeen && !out.CameOnline && len(out.Refused) == 0 && len(out.NewEvents) == 0 && len(raised) == 0 && len(cleared) == 0 {
 		return
 	}
 	go func() {
@@ -246,6 +366,26 @@ func (s *Server) afterSync(d *store.Device, out *store.SyncOut) {
 			}
 			s.publish(ctx, d.UserID, "devices.setting_refused", subject, with(map[string]any{"refused": out.Refused}))
 			s.notifyUser(ctx, d.UserID, "refused", d.Name+" refused a setting", strings.Join(keys, ", "), "warning", d.ID)
+		}
+		for _, e := range out.NewEvents {
+			def, _ := k.Event(e.Type)
+			s.publish(ctx, d.UserID, "devices.event", subject, with(map[string]any{"type": e.Type, "data": e.Data, "at": e.At}))
+			if def != nil && def.Notify {
+				s.notifyUser(ctx, d.UserID, "alerts", d.Name+": "+strings.ToLower(def.Label), def.Label+" at "+d.Name+".", "rotating_light", d.ID)
+			}
+		}
+		for _, id := range raised {
+			a, _ := k.Alert(id)
+			text := alertText(a, d.Name, k, values)
+			s.publish(ctx, d.UserID, "devices.alert", subject, with(map[string]any{"alert": id, "label": a.Label, "level": a.Level, "text": text}))
+			tag := "warning"
+			if a.Level == "alarm" {
+				tag = "rotating_light"
+			}
+			s.notifyUser(ctx, d.UserID, "alerts", a.Label+": "+d.Name, text, tag, d.ID)
+		}
+		for _, id := range cleared {
+			s.publish(ctx, d.UserID, "devices.alert_cleared", subject, with(map[string]any{"alert": id}))
 		}
 	}()
 }

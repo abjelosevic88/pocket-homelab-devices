@@ -225,3 +225,63 @@ the server does this:
 - Which characters the 7-segment display can show for `splash_text`.
 - Whether the clock's TZ parser takes `<+03>-3` style names (the built-in time
   zone list avoids them).
+
+---
+
+## Other kinds of devices (same protocol, one optional field)
+
+Pocket Devices speaks this protocol with every kind of hardware it knows, not
+only the clock. Each kind is one file in `internal/kinds/` with its setting
+table (same format as above), its commands, and three more lists the server
+reads:
+
+- **readings**: what the device reports and where it sits in the request,
+  e.g. `{"key": "temp_c", "path": "climate.temp_c", "unit": "°C", "chart": true}`.
+  A device simply adds its own objects next to the common fields
+  (`"climate": {"temp_c": 21.4, "humidity": 48}`); for the clock they are the
+  fields it already sends (`weather.temp_c`, `alarm.ringing`, `time.synced`). A
+  reading can also be one of the device's settings (`"path": "config.alarm"`).
+  Chart readings are kept in 5-minute buckets for 30 days.
+- **alerts**: conditions on readings (`battery < 15`, `leak = true`,
+  `co2 > the co2_warn setting`), evaluated by the server on every check-in. The
+  person is told when one starts; it shows on the device until it ends.
+- **events**: things the device tells as they happen. This is the only addition
+  to the request, an optional field that firmware without events never sends:
+
+```json
+"events": [
+  { "id": "e-8812-41", "type": "press", "action": "double", "at": 1764000003 }
+]
+```
+
+- `id`: the device's own id for the event (up to 64 characters), so an event
+  sent again after a lost answer is stored once.
+- `type`: one of the kind's event types (`press`, `opened`, `closed`, `motion`,
+  `quiet`, `leak`, `dry`, `switched`); unknown types are ignored.
+- The other fields are the event's own (`action`, `state`, `by`); only fields
+  the kind declares are kept, and only their listed values.
+- `at`: unix time when it happened (optional; else when it arrived).
+- At most 20 events per request; a device keeps the rest for the next one and
+  drops events once an answer (`200`) arrived. A sleeping battery device wakes
+  up and checks in at once when it has an event.
+
+Every new event goes out on the Pocket Core bus as `devices.event`, alerts as
+`devices.alert` / `devices.alert_cleared`, so other apps can act on a button
+press or a door opening.
+
+The example kinds (an ESP32 each, MAC as device id, same three console lines):
+
+| Kind | Power | Reports | Events | Alerts |
+|---|---|---|---|---|
+| `ntp-clock` NTP Clock | USB | alarm, ringing, outdoor temperature, time sync | – | alarm ringing (stop it), time lost |
+| `climate-sensor` Climate sensor | battery | temperature, humidity, pressure, battery | – | too warm / cold / damp (your limits), battery low |
+| `air-quality` Air quality monitor | USB | CO₂, PM2.5, VOC index, temperature, humidity | – | stuffy air, really bad air, fine dust |
+| `button` Smart button | battery | last press, battery | `press` single / double / long | battery low |
+| `contact-sensor` Door & window sensor | battery | open/closed, open for (min), battery | `opened`, `closed` | left open, battery low |
+| `motion-sensor` Motion sensor | battery | motion, brightness (lux), battery | `motion`, `quiet` | battery low |
+| `smart-plug` Smart plug | mains | on/off, power (W), energy (kWh), voltage | `switched` (state, by) | too much power |
+| `leak-sensor` Water leak sensor | battery | water, temperature, battery | `leak`, `dry` | water (stop the beeping), close to freezing, battery low |
+
+A new kind of hardware is a new JSON file: settings, commands, readings,
+alerts and events. The server checks the file when it starts (unknown groups,
+readings, settings or commands are refused).

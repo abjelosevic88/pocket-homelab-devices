@@ -23,6 +23,10 @@ func (s *Server) notifyUser(ctx context.Context, uid int64, kind, title, body, t
 		if !st.NotifyRefused {
 			return
 		}
+	case "alerts":
+		if !st.NotifyAlerts {
+			return
+		}
 	}
 	prio := "info"
 	if kind != "" && tag != "white_check_mark" {

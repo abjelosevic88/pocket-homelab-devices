@@ -2,11 +2,11 @@
 // with the exact console lines to paste into the device.
 import React, { useState } from 'react'
 import { api, V1 } from '../lib/api'
-import { useKinds } from '../lib/devices'
+import { CATEGORY_LABEL, POWER_LABEL, kindIcon, useKinds } from '../lib/devices'
 import type { DeviceDetail } from '../lib/types'
 import { Icon } from './icons'
 import { Select } from './Select'
-import { Field, Loading, Modal, Segmented, useToast } from './ui'
+import { Field, Loading, Modal, useToast } from './ui'
 import { useDevices } from './Layout'
 
 export function AddDeviceModal({ onClose, onAdded }: { onClose: () => void; onAdded: (d: DeviceDetail) => void }) {
@@ -17,7 +17,7 @@ export function AddDeviceModal({ onClose, onAdded }: { onClose: () => void; onAd
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [made, setMade] = useState<DeviceDetail | null>(null)
-  const kind = kinds?.find(k => k.id === (f.kind || kinds[0]?.id))
+  const kind = kinds?.find(k => k.id === f.kind) || (kinds?.length === 1 ? kinds[0] : undefined)
   const places = Array.from(new Set((devices || []).map(d => d.location).filter(Boolean))).sort()
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -36,13 +36,36 @@ export function AddDeviceModal({ onClose, onAdded }: { onClose: () => void; onAd
       </Modal>
     )
   }
+  if (kinds && !kind) {
+    const cats = Array.from(new Set(kinds.map(k => k.category)))
+    return (
+      <Modal title="Add a device" onClose={onClose}>
+        <div className="stack">
+          <p className="muted small">What kind of device is it?</p>
+          {cats.map(c => (
+            <div key={c} className="kind-group">
+              <h4 className="kind-group-h">{CATEGORY_LABEL[c] || c}</h4>
+              <div className="kind-grid">
+                {kinds.filter(k => k.category === c).map(k => (
+                  <button key={k.id} type="button" className="kind-card" onClick={() => setF({ ...f, kind: k.id })}>
+                    <span className="kind-card-ico"><Icon name={kindIcon(k.icon)} size={20} /></span>
+                    <span className="grow"><b>{k.name}</b><span className="muted small">{POWER_LABEL[k.power] || k.power}{k.events.length ? ` · ${k.events.map(e => e.label.toLowerCase()).slice(0, 2).join(', ')}` : ''}</span></span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Modal>
+    )
+  }
   return (
-    <Modal title="Add a device" onClose={onClose} size="sm">
+    <Modal title={kind ? `Add a ${kind.name.toLowerCase()}` : 'Add a device'} onClose={onClose} size="sm">
       {!kinds ? <Loading /> : (
         <form onSubmit={submit} className="grid form-stack">
-          {kinds.length > 1 && <Field group label="Kind"><Segmented value={kind?.id || ''} onChange={v => setF({ ...f, kind: v })} options={kinds.map(k => ({ value: k.id, label: k.name }))} /></Field>}
-          {kind && <div className="kind-intro"><Icon name="alarm-clock" size={18} /><p className="small muted">{kind.summary}</p></div>}
-          <Field label="Name"><input autoFocus value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder={kind ? `${kind.name} in the bedroom` : ''} maxLength={80} /></Field>
+          {kind && <div className="kind-intro"><Icon name={kindIcon(kind.icon)} size={18} /><p className="small muted">{kind.summary}</p></div>}
+          {kinds.length > 1 && <button type="button" className="btn ghost sm kind-back" onClick={() => setF({ ...f, kind: '' })}><Icon name="chevron-left" size={14} />Another kind of device</button>}
+          <Field label="Name"><input autoFocus value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder={kind ? `${kind.name} in the ${kind.category === 'button' ? 'office' : 'bedroom'}` : ''} maxLength={80} /></Field>
           <Field label={kind?.hw_id.label || 'Hardware id'} help={kind?.hw_id.help}>
             <input value={f.hw_id} onChange={e => setF({ ...f, hw_id: e.target.value })} placeholder={kind?.hw_id.example} spellCheck={false} autoCapitalize="characters" autoComplete="off" className="mono" required />
           </Field>

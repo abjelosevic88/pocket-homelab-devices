@@ -39,7 +39,7 @@ func (s *Server) publicSettings(ctx context.Context, u *store.User, st store.Set
 		"core_configured": s.core.Configured(), "core_registered": s.coreStatus()["registered"],
 		"title": st.Title, "date_format": st.DateFormat, "time_format": st.TimeFormat,
 		"device_url": st.DeviceURL, "device_url_effective": firstNonEmpty(st.DeviceURL, s.cfg.BaseURL),
-		"notify_offline": st.NotifyOffline, "notify_refused": st.NotifyRefused,
+		"notify_offline": st.NotifyOffline, "notify_refused": st.NotifyRefused, "notify_alerts": st.NotifyAlerts,
 		"notify_url": st.NotifyURL, "notify_format": st.NotifyFormat, "notify_configured": st.NotifyURL != "",
 		"weather_url": st.WeatherURL, "weather_token": mask(st.WeatherToken), "weather_public_url": st.WeatherPublicURL,
 		"setup_complete": st.SetupComplete, "base_url": s.cfg.BaseURL,
@@ -126,6 +126,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	boolIn("notify_offline", &cur.NotifyOffline, in.NotifyOffline)
 	boolIn("notify_refused", &cur.NotifyRefused, in.NotifyRefused)
+	boolIn("notify_alerts", &cur.NotifyAlerts, in.NotifyAlerts)
 	if keys["notify_url"] {
 		cur.NotifyURL = strings.TrimSpace(in.NotifyURL)
 	}

@@ -13,8 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abjelosevic88/pocket-homelab-devices/internal/clocksim"
 	"github.com/abjelosevic88/pocket-homelab-devices/internal/config"
+	"github.com/abjelosevic88/pocket-homelab-devices/internal/kinds"
+	"github.com/abjelosevic88/pocket-homelab-devices/internal/sim"
 	"github.com/abjelosevic88/pocket-homelab-devices/internal/store"
 )
 
@@ -110,7 +111,7 @@ func (a *app) expect(want int, auth, method, path string, body any) map[string]a
 func num(m map[string]any, k string) float64 { v, _ := m[k].(float64); return v }
 
 // addClock adds a clock for a person and returns its id, token and a simulator.
-func (a *app) addClock(auth, mac string) (int64, string, *clocksim.Clock, *clocksim.Client) {
+func (a *app) addClock(auth, mac string) (int64, string, *sim.Device, *sim.Client) {
 	a.t.Helper()
 	m := a.expect(201, auth, "POST", "/api/v1/devices", map[string]any{"kind": "ntp-clock", "name": "Clock " + mac[:4], "hw_id": mac, "location": "Bedroom"})
 	tok, _ := m["token"].(string)
@@ -122,13 +123,13 @@ func (a *app) addClock(auth, mac string) (int64, string, *clocksim.Clock, *clock
 		a.t.Fatalf("setup lines: %v", setup)
 	}
 	dev := m["device"].(map[string]any)
-	c := clocksim.New(strings.ToUpper(strings.ReplaceAll(mac, ":", "")), 7)
+	c := sim.New("ntp-clock", strings.ToUpper(strings.ReplaceAll(mac, ":", "")), 7)
 	c.Set("ssid", "Home")
 	c.Set("pass", "secret-wifi")
-	return int64(num(dev, "id")), tok, c, &clocksim.Client{URL: a.url, Token: tok}
+	return int64(num(dev, "id")), tok, c, &sim.Client{URL: a.url, Token: tok}
 }
 
-func (a *app) sync(cl *clocksim.Client, c *clocksim.Clock) int {
+func (a *app) sync(cl *sim.Client, c *sim.Device) int {
 	a.t.Helper()
 	code, _, err := cl.Sync(context.Background(), c)
 	if err != nil && code == 0 {
@@ -456,7 +457,8 @@ func TestPerPerson(t *testing.T) {
 	a.expect(404, a.bob, "POST", path+"/commands", map[string]any{"name": "sync_time"})
 	a.expect(404, a.bob, "GET", path+"/log", nil)
 	a.expect(404, a.bob, "GET", path+"/commands", nil)
-	a.expect(404, a.bob, "GET", path+"/samples", nil)
+	a.expect(404, a.bob, "GET", path+"/readings", nil)
+	a.expect(404, a.bob, "GET", path+"/events", nil)
 	a.expect(404, a.bob, "POST", path+"/token", nil)
 	a.expect(404, a.bob, "DELETE", path, nil)
 	if _, _, l := a.call(a.bob, "GET", "/api/v1/devices", nil); len(l) != 0 {
@@ -476,7 +478,7 @@ func TestSettingsPerPerson(t *testing.T) {
 	}
 	a.expect(400, a.alice, "PUT", "/api/v1/settings", map[string]any{"device_url": "http://plain.example.com"})
 	a.ok(a.alice, "PUT", "/api/v1/settings", map[string]any{"device_url": "https://clock.example.com"})
-	m := a.expect(201, a.alice, "POST", "/api/v1/devices", map[string]any{"name": "C", "hw_id": "0A0B0C0D0E0F"})
+	m := a.expect(201, a.alice, "POST", "/api/v1/devices", map[string]any{"kind": "ntp-clock", "name": "C", "hw_id": "0A0B0C0D0E0F"})
 	if s := m["setup"].([]any); s[0] != "cfg set server_url https://clock.example.com" {
 		t.Fatalf("setup: %v", s)
 	}
@@ -535,22 +537,181 @@ func TestPosixTZ(t *testing.T) {
 	}
 }
 
-// The demo clocks check in through the same code as real ones.
+// The demo devices (one of every kind) check in through the same code as real ones.
 func TestDemoSeeds(t *testing.T) {
 	a := newApp(t, func(c *config.Config) { c.DemoData = true; c.AdminEmail = ""; c.AuthMode = "local" })
 	if err := a.s.seedDemo(context.Background(), a.ids["Alice"]); err != nil {
 		t.Fatal(err)
 	}
 	_, _, l := a.call(a.alice, "GET", "/api/v1/devices", nil)
-	if len(l) != 3 {
+	if len(l) != len(demoSpecs) {
 		t.Fatalf("demo devices: %d", len(l))
 	}
-	states := map[string]string{}
+	states, kindsSeen := map[string]string{}, map[string]bool{}
 	for _, x := range l {
 		m := x.(map[string]any)
 		states[m["name"].(string)] = m["state"].(string)
+		kindsSeen[m["kind"].(string)] = true
+		if len(m["readings"].(map[string]any)) == 0 && m["state"] == "online" {
+			t.Errorf("%s reports no readings", m["name"])
+		}
 	}
 	if states["Bedroom clock"] != "online" || states["Office clock"] != "offline" {
 		t.Fatalf("states: %v", states)
+	}
+	for _, k := range kinds.All() {
+		if !kindsSeen[k.ID] {
+			t.Errorf("no demo device of kind %s", k.ID)
+		}
+	}
+}
+
+// Every kind connects over HTTP, reports its readings and takes a setting.
+func TestEveryKindConnects(t *testing.T) {
+	a := newApp(t, nil)
+	for i, k := range kinds.All() {
+		mac := fmt.Sprintf("00AA00BB%04X", i)
+		m := a.expect(201, a.alice, "POST", "/api/v1/devices", map[string]any{"kind": k.ID, "name": k.Name, "hw_id": mac})
+		id := int64(num(m["device"].(map[string]any), "id"))
+		dev := sim.New(k.ID, mac, int64(i))
+		cl := &sim.Client{URL: a.url, Token: m["token"].(string)}
+		if code := a.sync(cl, dev); code != 200 {
+			t.Fatalf("%s: first sync %d", k.ID, code)
+		}
+		// change the first setting that is not WiFi or the server's
+		var key, val string
+		for _, s := range k.Settings {
+			if s.Locked || s.Group == "wifi" || s.Type != "bool" {
+				continue
+			}
+			key, val = s.Key, map[bool]string{true: "off", false: "on"}[dev.Get(s.Key) == "on"]
+			break
+		}
+		if key == "" {
+			t.Fatalf("%s has no bool setting to try", k.ID)
+		}
+		a.ok(a.alice, "PUT", fmt.Sprintf("/api/v1/devices/%d/settings", id), map[string]any{"values": map[string]any{key: val}})
+		a.sync(cl, dev)
+		if dev.Get(key) != val {
+			t.Fatalf("%s: %s = %s, want %s", k.ID, key, dev.Get(key), val)
+		}
+		a.sync(cl, dev)
+		d := a.ok(a.alice, "GET", fmt.Sprintf("/api/v1/devices/%d", id), nil)["device"].(map[string]any)
+		if d["state"] != "online" || num(d, "pending") != 0 {
+			t.Fatalf("%s: %v", k.ID, d)
+		}
+		rs := d["readings"].(map[string]any)
+		for _, r := range k.Readings {
+			if r.Key == "last_action" || r.Key == "alarm_time" || r.Key == "temp_c" && k.ID == "ntp-clock" {
+				continue // only once known
+			}
+			if _, ok := rs[r.Key]; !ok {
+				t.Errorf("%s: reading %s missing (%v)", k.ID, r.Key, rs)
+			}
+		}
+		a.s.limits = newLimits()
+	}
+}
+
+// A button's presses arrive once even when the device sends them again,
+// with only the fields its kind declares.
+func TestButtonEvents(t *testing.T) {
+	a := newApp(t, nil)
+	m := a.expect(201, a.alice, "POST", "/api/v1/devices", map[string]any{"kind": "button", "name": "Desk", "hw_id": "0A0A0A0A0A0A"})
+	id := int64(num(m["device"].(map[string]any), "id"))
+	tok := m["token"].(string)
+	dev := sim.New("button", "0A0A0A0A0A0A", 1)
+	dev.Press("double")
+	dev.Emit("press", map[string]any{"action": "spin", "secret": "x"})
+	dev.Emit("teleport", nil)
+	body, _ := json.Marshal(dev.Request())
+	a.rawSync(tok, body)
+	a.rawSync(tok, body) // the answer was lost: sent again
+	_, _, l := a.call(a.alice, "GET", fmt.Sprintf("/api/v1/devices/%d/events", id), nil)
+	if len(l) != 2 {
+		t.Fatalf("events: %v", l)
+	}
+	got := map[string]bool{}
+	for _, x := range l {
+		e := x.(map[string]any)
+		data := e["data"].(map[string]any)
+		if _, leaked := data["secret"]; leaked {
+			t.Fatalf("undeclared field kept: %v", e)
+		}
+		got[fmt.Sprint(e["type"], ":", data["action"])] = true
+	}
+	if !got["press:double"] || !got["press:<nil>"] {
+		t.Fatalf("events: %v", got)
+	}
+	a.expect(404, a.bob, "GET", fmt.Sprintf("/api/v1/devices/%d/events", id), nil)
+}
+
+// A leak raises the water alert once, it shows on the device and clears when dry.
+func TestAlertsRaiseAndClear(t *testing.T) {
+	a := newApp(t, nil)
+	m := a.expect(201, a.alice, "POST", "/api/v1/devices", map[string]any{"kind": "leak-sensor", "name": "Sink", "hw_id": "0B0B0B0B0B0B"})
+	id := int64(num(m["device"].(map[string]any), "id"))
+	dev := sim.New("leak-sensor", "0B0B0B0B0B0B", 2)
+	cl := &sim.Client{URL: a.url, Token: m["token"].(string)}
+	a.sync(cl, dev)
+	path := fmt.Sprintf("/api/v1/devices/%d", id)
+	if al := a.ok(a.alice, "GET", path, nil)["device"].(map[string]any)["alerts"].([]any); len(al) != 0 {
+		t.Fatalf("alerts while dry: %v", al)
+	}
+	dev.SetWet(true)
+	a.sync(cl, dev)
+	a.sync(cl, dev)
+	al := a.ok(a.alice, "GET", path, nil)["device"].(map[string]any)["alerts"].([]any)
+	if len(al) != 1 || al[0].(map[string]any)["id"] != "water" || al[0].(map[string]any)["text"] != "Water at Sink!" || al[0].(map[string]any)["action"] != "silence" {
+		t.Fatalf("alerts while wet: %v", al)
+	}
+	if o := a.ok(a.alice, "GET", "/api/v1/overview", nil); num(o, "alerts") != 1 {
+		t.Fatalf("overview: %v", o)
+	}
+	dev.SetWet(false)
+	a.sync(cl, dev)
+	if al := a.ok(a.alice, "GET", path, nil)["device"].(map[string]any)["alerts"].([]any); len(al) != 0 {
+		t.Fatalf("alerts after drying: %v", al)
+	}
+	_, _, l := a.call(a.alice, "GET", path+"/log", nil)
+	if n := strings.Count(fmt.Sprint(l), "action:alert "); n != 1 || !strings.Contains(fmt.Sprint(l), "alert_cleared") {
+		t.Fatalf("log (%d raises): %v", n, l)
+	}
+	_, _, ev := a.call(a.alice, "GET", path+"/events", nil)
+	if len(ev) != 2 {
+		t.Fatalf("leak + dry events: %v", ev)
+	}
+}
+
+// A plug switches on a command and tells it as an event; its power limit
+// alert uses the plug's own setting.
+func TestPlugCommandsAndLimit(t *testing.T) {
+	a := newApp(t, nil)
+	m := a.expect(201, a.alice, "POST", "/api/v1/devices", map[string]any{"kind": "smart-plug", "name": "Kettle", "hw_id": "0C0C0C0C0C0C"})
+	id := int64(num(m["device"].(map[string]any), "id"))
+	dev := sim.New("smart-plug", "0C0C0C0C0C0C", 3)
+	cl := &sim.Client{URL: a.url, Token: m["token"].(string)}
+	a.sync(cl, dev)
+	path := fmt.Sprintf("/api/v1/devices/%d", id)
+	a.expect(201, a.alice, "POST", path+"/commands", map[string]any{"name": "turn_off"})
+	a.expect(400, a.alice, "POST", path+"/commands", map[string]any{"name": "reset_energy"})
+	a.sync(cl, dev) // gets the command, switches off
+	a.sync(cl, dev) // reports it with the event
+	d := a.ok(a.alice, "GET", path, nil)["device"].(map[string]any)
+	if d["readings"].(map[string]any)["on"] != false {
+		t.Fatalf("still on: %v", d["readings"])
+	}
+	_, _, ev := a.call(a.alice, "GET", path+"/events", nil)
+	if len(ev) != 1 || ev[0].(map[string]any)["data"].(map[string]any)["by"] != "server" {
+		t.Fatalf("switched event: %v", ev)
+	}
+	dev.SetLoad(3600) // a 3.6 kW heater, more than the 3500 W the plug allows
+	a.expect(201, a.alice, "POST", path+"/commands", map[string]any{"name": "turn_on"})
+	a.sync(cl, dev)
+	a.sync(cl, dev)
+	a.sync(cl, dev)
+	al := a.ok(a.alice, "GET", path, nil)["device"].(map[string]any)["alerts"].([]any)
+	if len(al) != 1 || al[0].(map[string]any)["id"] != "overload" {
+		t.Fatalf("overload alert at 3600 W: %v", al)
 	}
 }

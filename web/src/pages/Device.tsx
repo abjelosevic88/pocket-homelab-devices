@@ -4,8 +4,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, V1 } from '../lib/api'
 import { useApp } from '../lib/app-context'
-import { ACTION_LABEL, COMMAND_STATE, fmtTemp, fmtUptime, kindOf, seenLabel, settingDef, showValue, signal, stateLabel, useKinds, when, daysLabel } from '../lib/devices'
-import type { Command, CommandDef, DeviceDetail, Kind, LogEntry, Place, Sample, SettingDef } from '../lib/types'
+import { ACTION_LABEL, COMMAND_STATE, fmtReading, fmtUptime, kindIcon, kindOf, seenLabel, settingDef, showValue, signal, stateLabel, useKinds, when } from '../lib/devices'
+import type { Command, CommandDef, DeviceDetail, DeviceEvent, Kind, LogEntry, Place, Readings, SettingDef } from '../lib/types'
 import { ago, fmtTime } from '../lib/format'
 import { Icon } from '../components/icons'
 import { Confirm, CoreHint, Empty, Field, Loading, Modal, SettingRow, Spinner, Switch, Tabs, useAsync, useToast } from '../components/ui'
@@ -48,7 +48,7 @@ export default function DevicePage() {
   return (
     <div className="page device-page">
       <header className="dev-head">
-        <span className={`dev-ico state-${dev.state}`}><Icon name="alarm-clock" size={22} /></span>
+        <span className={`dev-ico state-${dev.state}`}><Icon name={kindIcon(dev.icon)} size={22} /></span>
         <div className="grow">
           <h2>{dev.name}</h2>
           <div className="dev-sub muted">{[dev.location, dev.kind_name, dev.hw_id].filter(Boolean).join(' · ')}</div>
@@ -56,7 +56,7 @@ export default function DevicePage() {
         <div className="dev-badges">
           <span className={`pill state-${dev.state}`}><span className={`dot-state ${dev.state}`} />{stateLabel(dev)}</span>
           {dev.pending > 0 && <span className="pill pending" title="Changes the device has not taken yet">{dev.pending} waiting</span>}
-          {dev.summary.ringing && <span className="pill ringing"><Icon name="bell" size={13} />Alarm ringing</span>}
+          {dev.alerts.map(a => <span key={a.id} className={`pill alert-${a.level}`}><Icon name={a.level === 'alarm' ? 'alert' : 'bell'} size={13} />{a.label}</span>)}
         </div>
       </header>
       <div className="dev-tabs"><Tabs tabs={TABS} value={tab} onChange={go} /></div>
@@ -75,7 +75,6 @@ function Overview({ d, kind, reload, go }: { d: DeviceDetail; kind?: Kind; reloa
   const dev = d.device
   const s = dev.summary
   const sig = signal(s.rssi)
-  const unit = s.temp_unit
   const send = useSend(dev.id, reload)
   if (dev.state === 'new') {
     return (
@@ -85,29 +84,40 @@ function Overview({ d, kind, reload, go }: { d: DeviceDetail; kind?: Kind; reloa
       </div>
     )
   }
-  const tiles: { label: string; value: React.ReactNode; sub?: React.ReactNode; icon: string; tone?: string }[] = [
-    { label: 'Last check-in', value: seenLabel(dev), sub: dev.state === 'online' ? `every ${dev.poll_s} s` : 'offline', icon: 'refresh', tone: dev.state === 'online' ? 'ok' : 'bad' },
-    { label: 'Outdoor temperature', value: fmtTemp(s.temp_c, unit), sub: s.place || '—', icon: 'thermometer' },
-    { label: 'Alarm', value: s.ringing ? 'Ringing' : s.alarm_on ? s.alarm_time || 'On' : 'Off', sub: s.alarm_on ? daysLabel(s.alarm_days) : 'not armed', icon: 'alarm-clock', tone: s.ringing ? 'bad' : '' },
-    { label: 'WiFi signal', value: sig.label, sub: s.rssi !== undefined ? `${s.rssi} dBm · ${s.ssid || ''}` : '—', icon: 'wifi', tone: sig.bars <= 1 && s.rssi !== undefined ? 'bad' : '' },
-    { label: 'Time', value: s.time_synced === undefined ? '—' : s.time_synced ? 'In sync' : 'Not synced', sub: dev.status && (dev.status as { time?: { last_sync_age_s?: number } }).time?.last_sync_age_s !== undefined ? `synced ${fmtUptime((dev.status as { time: { last_sync_age_s: number } }).time.last_sync_age_s)} ago` : '', icon: 'clock', tone: s.time_synced === false ? 'bad' : '' },
-    { label: 'Running for', value: fmtUptime(s.uptime_s), sub: String((dev.status as { reset_reason?: string }).reset_reason || ''), icon: 'power' },
-    { label: 'Firmware', value: s.fw || '—', sub: kind?.name, icon: 'cpu' },
-    { label: 'Address', value: s.ip || dev.last_ip || '—', sub: dev.last_ip && s.ip !== dev.last_ip ? `seen from ${dev.last_ip}` : 'on your network', icon: 'globe' },
+  const subs = new Set((kind?.readings || []).map(r => r.sub).filter(Boolean) as string[])
+  const readingTiles = (kind?.readings || []).filter(r => r.key !== 'rssi' && !subs.has(r.key) && dev.readings[r.key] !== undefined)
+  const alertReadings = new Set(dev.alerts.map(a => kind?.alerts.find(x => x.id === a.id)?.reading))
+  const tiles: { key: string; label: string; value: React.ReactNode; sub?: React.ReactNode; icon: string; tone?: string }[] = [
+    ...readingTiles.map(r => {
+      const v = dev.readings[r.key]
+      const sub = r.sub ? kind?.readings.find(x => x.key === r.sub) : undefined
+      return { key: r.key, label: r.label, value: fmtReading(r, v), sub: sub && dev.readings[sub.key] !== undefined && dev.readings[sub.key] !== '' ? `${sub.label}: ${fmtReading(sub, dev.readings[sub.key])}` : undefined, icon: r.icon || 'dot', tone: alertReadings.has(r.key) ? 'bad' : r.type === 'bool' && v ? 'on' : '' }
+    }),
+    { key: '_seen', label: 'Last check-in', value: seenLabel(dev), sub: dev.state === 'online' ? `every ${fmtEvery(dev.poll_s)}` : 'offline', icon: 'refresh', tone: dev.state === 'online' ? 'ok' : 'bad' },
+    { key: '_wifi', label: 'WiFi signal', value: sig.label, sub: s.rssi !== undefined ? `${s.rssi} dBm · ${s.ssid || ''}` : '—', icon: 'wifi', tone: sig.bars <= 1 && s.rssi !== undefined ? 'bad' : '' },
+    { key: '_up', label: 'Running for', value: fmtUptime(s.uptime_s), sub: s.reset_reason || '', icon: 'power' },
+    { key: '_fw', label: 'Firmware', value: s.fw || '—', sub: kind?.name, icon: 'cpu' },
+    { key: '_ip', label: 'Address', value: s.ip || dev.last_ip || '—', sub: dev.last_ip && s.ip !== dev.last_ip ? `seen from ${dev.last_ip}` : 'on your network', icon: 'globe' },
   ]
+  const alertActions = new Set((kind?.alerts || []).map(a => a.action).filter(Boolean))
+  const sleepy = kind?.power === 'battery'
   return (
     <div className="stack loose">
-      {s.ringing && (
-        <div className="ring-banner">
-          <Icon name="bell" size={18} /><span className="grow"><b>The alarm is ringing.</b> It stops at the clock’s next check-in, within {dev.poll_s} seconds.</span>
-          <button type="button" className="btn danger" disabled={send.busy === 'alarm_stop'} onClick={() => send.run('alarm_stop')}>{send.busy === 'alarm_stop' ? <Spinner /> : <Icon name="bell-off" size={15} />}Stop the alarm</button>
-        </div>
-      )}
-      {dev.pending > 0 && <div className="callout warn"><Icon name="hourglass" size={15} /><div>{dev.pending === 1 ? 'One change waits' : `${dev.pending} changes wait`} for the device’s next check-in{dev.state === 'offline' ? ', when it is back online' : ''}. <button type="button" className="linkish" onClick={() => go('settings')}>See them</button></div></div>}
+      {dev.alerts.map(a => {
+        const cmd = a.action ? kind?.commands.find(c => c.name === a.action) : undefined
+        return (
+          <div key={a.id} className={`alert-banner ${a.level}`}>
+            <Icon name={a.level === 'alarm' ? 'alert' : 'bell'} size={18} />
+            <span className="grow"><b>{a.label}.</b> {a.text} <span className="muted-on small">since {ago(a.since)}</span></span>
+            {cmd && <button type="button" className={`btn ${a.level === 'alarm' ? 'danger' : ''}`} disabled={send.busy === cmd.name} onClick={() => send.run(cmd.name)}>{send.busy === cmd.name ? <Spinner /> : <Icon name="send" size={15} />}{cmd.label}</button>}
+          </div>
+        )
+      })}
+      {dev.pending > 0 && <div className="callout warn"><Icon name="hourglass" size={15} /><div>{dev.pending === 1 ? 'One change waits' : `${dev.pending} changes wait`} for the device’s next check-in{dev.state === 'offline' ? ', when it is back online' : sleepy ? ' (it runs on a battery and sleeps in between)' : ''}. <button type="button" className="linkish" onClick={() => go('settings')}>See them</button></div></div>}
       {Object.keys(dev.config_errors || {}).length > 0 && <div className="callout danger"><Icon name="alert" size={15} /><div>The device refused {Object.entries(dev.config_errors).map(([k, v]) => `${settingDef(kind, k)?.label || k} (${v})`).join(', ')} and kept its old value.</div></div>}
       <div className="tiles">
         {tiles.map(t => (
-          <div key={t.label} className={`tile ${t.tone || ''}`}>
+          <div key={t.key} className={`tile ${t.tone || ''}`}>
             <div className="tile-label"><Icon name={t.icon} size={14} />{t.label}</div>
             <div className="tile-value tnum">{t.value}</div>
             {t.sub && <div className="tile-sub muted">{t.sub}</div>}
@@ -115,32 +125,94 @@ function Overview({ d, kind, reload, go }: { d: DeviceDetail; kind?: Kind; reloa
         ))}
       </div>
       <div className="quick-actions">
-        {kind?.commands.filter(c => !c.danger && c.name !== 'alarm_stop').map(c => (
-          <button key={c.name} type="button" className="btn" disabled={!!send.busy} title={c.help} onClick={() => send.run(c.name, c.args?.length ? { [c.args[0].name]: Number((d.settings.find(x => x.key === 'alarm_sound')?.reported) || 0) } : undefined)}>
-            {send.busy === c.name ? <Spinner /> : <Icon name={c.name === 'sync_time' ? 'clock' : c.name === 'weather_refresh' ? 'thermometer' : 'volume'} size={15} />}{c.label}
-          </button>
-        ))}
+        {kind?.commands.filter(c => !c.danger && !alertActions.has(c.name)).map(c => {
+          const arg = c.args?.[0]
+          const argVal = arg ? Number((arg.default_setting && d.settings.find(x => x.key === arg.default_setting)?.reported) || arg.default) : 0
+          return (
+            <button key={c.name} type="button" className="btn" disabled={!!send.busy} title={c.help} onClick={() => send.run(c.name, arg ? { [arg.name]: argVal } : undefined)}>
+              {send.busy === c.name ? <Spinner /> : <Icon name={COMMAND_ICON[c.name] || 'send'} size={15} />}{c.label}
+            </button>
+          )
+        })}
       </div>
-      <History48 id={dev.id} unit={unit} />
+      {kind && kind.events.length > 0 && <Activity id={dev.id} kind={kind} lastSeen={dev.last_seen_at} settings={d.settings} />}
+      {kind && <History48 id={dev.id} kind={kind} />}
     </div>
   )
 }
 
-function History48({ id, unit }: { id: number; unit?: string }) {
-  const { data } = useAsync(() => api.get<Sample[]>(`${V1}/devices/${id}/samples?hours=48`), [id])
-  const temp = useMemo(() => (data || []).filter((_, i, a) => a.length < 300 || i % 3 === 0).map(p => ({ x: p.at, y: p.temp_c === null ? null : unit === 'f' ? (p.temp_c * 9) / 5 + 32 : p.temp_c })), [data, unit])
-  const rssi = useMemo(() => (data || []).filter((_, i, a) => a.length < 300 || i % 3 === 0).map(p => ({ x: p.at, y: p.rssi })), [data])
-  if (!data) return null
-  if (data.length < 2) return <p className="muted small">The last two days appear here once the device has reported for a while.</p>
+const COMMAND_ICON: Record<string, string> = {
+  sync_time: 'clock', weather_refresh: 'thermometer', alarm_test: 'volume', identify: 'search', measure_now: 'refresh', clean_fan: 'wind',
+  turn_on: 'power', turn_off: 'power', toggle: 'repeat', silence: 'volume-x', calibrate_co2: 'target',
+}
+
+function fmtEvery(s: number): string {
+  if (s >= 3600 && s % 3600 === 0) return s === 3600 ? 'hour' : `${s / 3600} h`
+  if (s >= 120 && s % 60 === 0) return `${s / 60} min`
+  return `${s} s`
+}
+
+/** What the device told lately: presses, doors, motion. */
+function Activity({ id, kind, lastSeen, settings }: { id: number; kind: Kind; lastSeen: string; settings: DeviceDetail['settings'] }) {
+  const named = (key?: string) => { if (!key) return ''; const r = settings.find(x => x.key === key); return r?.desired ?? r?.reported ?? '' }
+  const { data } = useAsync(() => api.get<DeviceEvent[]>(`${V1}/devices/${id}/events?limit=12`), [id, lastSeen])
+  const label = (e: DeviceEvent) => {
+    const def = kind.events.find(x => x.type === e.type)
+    const parts = (def?.fields || []).map(f => {
+      const v = e.data?.[f.name]
+      if (!v) return ''
+      const o = f.options?.find(x => x.value === v)
+      const name = named(o?.setting)
+      return o ? (name ? `${o.label} · ${name}` : o.label) : v
+    }).filter(Boolean)
+    return { def, text: parts.length ? `${def?.label || e.type}: ${parts.join(', ')}` : def?.label || e.type }
+  }
+  return (
+    <section className="card">
+      <div className="card-head"><h3>Lately</h3><span className="muted small">what it told as it happened</span></div>
+      {!data ? <Loading /> : data.length === 0 ? <p className="muted small">Nothing yet.</p> : (
+        <div className="events">
+          {data.map(e => {
+            const { def, text } = label(e)
+            return (
+              <div key={e.id} className={`event-row ${def?.notify ? 'loud' : ''}`}>
+                <span className="event-ico"><Icon name={def?.icon || 'dot'} size={14} /></span>
+                <span className="grow">{text}</span>
+                <span className="muted small" title={when(e.at)}>{ago(e.at)}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function History48({ id, kind }: { id: number; kind: Kind }) {
+  const { data } = useAsync(() => api.get<Readings>(`${V1}/devices/${id}/readings?hours=48`), [id])
+  const charts = kind.readings.filter(r => r.chart && (data?.[r.key]?.length || 0) > 1)
   const xfmt = (x: string) => { const t = new Date(x); return t.getHours() === 0 && t.getMinutes() < 15 ? t.toLocaleDateString(undefined, { weekday: 'short' }) : fmtTime(t) }
   const tipfmt = (x: string) => `${new Date(x).toLocaleDateString(undefined, { weekday: 'short' })} ${fmtTime(new Date(x))}`
+  if (!data) return null
+  if (!charts.length) return <p className="muted small">The last two days appear here once the device has reported for a while.</p>
   return (
     <div className="two-col charts">
-      <section className="card"><div className="card-head"><h3>Outdoor temperature</h3><span className="muted small">last 48 hours</span></div><LineChart points={temp} height={170} kind="area" xfmt={xfmt} tipfmt={tipfmt} format={v => `${v.toFixed(1)}°`} /></section>
-      <section className="card"><div className="card-head"><h3>WiFi signal</h3><span className="muted small">dBm, higher is better</span></div><LineChart points={rssi} height={170} color="var(--chart-2, #8b5cf6)" xfmt={xfmt} tipfmt={tipfmt} format={v => `${Math.round(v)}`} /></section>
+      {charts.map((r, i) => {
+        const pts = data[r.key].filter((_, j, a) => a.length < 300 || j % 3 === 0).map(p => ({ x: p.at, y: p.v }))
+        const help = r.key === 'rssi' ? 'dBm, higher is better' : r.unit ? `${r.unit} · last 48 hours` : 'last 48 hours'
+        return (
+          <section key={r.key} className="card">
+            <div className="card-head"><h3>{r.label}</h3><span className="muted small">{help}</span></div>
+            <LineChart points={pts} height={170} kind={i === 0 ? 'area' : 'line'} color={CHART_COLORS[i % CHART_COLORS.length]} zero={r.min === 0} xfmt={xfmt} tipfmt={tipfmt}
+              format={v => v.toLocaleString(undefined, { maximumFractionDigits: r.decimals ?? 0 })} />
+          </section>
+        )
+      })}
     </div>
   )
 }
+
+const CHART_COLORS = ['var(--accent)', '#8b5cf6', '#0d9488', '#d97706', '#db2777']
 
 function useSend(id: number, after?: () => void) {
   const { toast } = useToast()
@@ -242,7 +314,7 @@ function SettingsTab({ d, kind, onSaved }: { d: DeviceDetail; kind: Kind; onSave
         </div>
       )}
       {picker && <PlacePicker onClose={() => setPicker(false)} onPick={pickPlace} />}
-      {confirmReboot && <Confirm danger={false} title="Restart the device?" confirmLabel="Restart at the next check-in" message="The display type is used after a restart. Restart it now?" onCancel={() => setConfirmReboot(false)}
+      {confirmReboot && <Confirm danger={false} title="Restart the device?" confirmLabel="Restart at the next check-in" message="Some of the settings you changed are used only after a restart. Restart it now?" onCancel={() => setConfirmReboot(false)}
         onConfirm={async () => { setConfirmReboot(false); try { await api.post(`${V1}/devices/${d.device.id}/commands`, { name: 'reboot', confirm: true }); toast('Restart sent') } catch (e) { toast((e as Error).message, 'err') } }} />}
     </div>
   )

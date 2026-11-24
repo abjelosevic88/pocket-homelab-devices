@@ -35,7 +35,7 @@ type Server struct {
 	limits *limits // device endpoint: failed tokens per address, calls per device
 
 	demoMu sync.Mutex
-	demo   map[int64]*demoClock // simulated clocks (DEMO_DATA)
+	demo   map[int64]*demoDev // simulated clocks (DEMO_DATA)
 
 	oidcMu sync.Mutex
 	oidc   *oidcProvider // for the issuer in use; rebuilt when it changes
@@ -55,7 +55,7 @@ type resolvedURL struct {
 
 // New creates a server.
 func New(cfg *config.Config, st *store.Store, log *slog.Logger, webFS fs.FS) *Server {
-	return &Server{cfg: cfg, store: st, log: log, webFS: webFS, started: time.Now(), oidc: &oidcProvider{}, limits: newLimits(), demo: map[int64]*demoClock{},
+	return &Server{cfg: cfg, store: st, log: log, webFS: webFS, started: time.Now(), oidc: &oidcProvider{}, limits: newLimits(), demo: map[int64]*demoDev{},
 		core:     core.New(cfg.CoreURL, core.Options{DB: st.DB, TokenFile: cfg.DataDir + "/core.token", UserAgent: cfg.UserAgent}),
 		resolved: map[string]resolvedURL{}}
 }
@@ -201,12 +201,12 @@ func (s *Server) coreLoop(ctx context.Context) {
 }
 
 // eventTopics are what Devices publishes on the Core bus.
-var eventTopics = []string{"devices.connected", "devices.went_offline", "devices.back_online", "devices.setting_refused"}
+var eventTopics = []string{"devices.connected", "devices.went_offline", "devices.back_online", "devices.setting_refused", "devices.event", "devices.alert", "devices.alert_cleared"}
 
 func (s *Server) registerWithCore(ctx context.Context) error {
 	m := core.Manifest{
 		Slug: "devices", Name: "Pocket Devices",
-		Description: "Your own hardware in one place: add a device, connect it with a token and change its settings from here. Starts with the NTP Clock (an ESP32 desk clock): every setting with proper controls, what the clock really has next to what you want, commands like restart or stop the alarm, live status and a history of who changed what.",
+		Description: "Your own hardware in one place: add a device, connect it with a token and change its settings from here. Clocks, climate and air-quality sensors, buttons, door, motion and leak sensors, smart plugs: every setting with proper controls, what the device really has next to what you want, commands, live readings with alerts, button presses and other events for the rest of the box, and a history of who changed what.",
 		Icon:        "/favicon.svg", Version: Version,
 		URL: s.cfg.CoreAppURL, PublicURL: s.cfg.BaseURL, HealthPath: "/healthz", EnvPrefix: "DEVICES",
 		Publishes: eventTopics,

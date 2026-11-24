@@ -1,0 +1,302 @@
+{
+ "id": "leak-sensor",
+ "name": "Water leak sensor",
+ "protocol": "pocket-sync/1",
+ "category": "sensor",
+ "power": "battery",
+ "icon": "droplet",
+ "summary": "A battery sensor (ESP32-C3 with two probes and a buzzer) for under the washing machine, the boiler or the sink. Beeps and tells you the moment it touches water, and can warn when the room gets close to freezing.",
+ "hw_id": {
+  "label": "WiFi MAC address",
+  "help": "12 characters, printed at start-up and by the “wifi” command on the serial console.",
+  "example": "A1B2C3D4E5F6",
+  "format": "mac12"
+ },
+ "token": {
+  "min": 32,
+  "max": 64
+ },
+ "poll": {
+  "default": 3600,
+  "min": 300,
+  "max": 86400
+ },
+ "setup": [
+  "cfg set server_url {url}",
+  "cfg set device_token {token}",
+  "cfg set remote on"
+ ],
+ "setup_help": "Connect the USB cable (it wakes the sensor), open the serial console and paste these three lines. It sleeps between check-ins to save the battery, so changes and commands reach it at its next check-in (or right after it wakes up for something).",
+ "groups": [
+  {
+   "id": "wifi",
+   "label": "WiFi"
+  },
+  {
+   "id": "leak",
+   "label": "Water"
+  },
+  {
+   "id": "alerts",
+   "label": "Frost"
+  },
+  {
+   "id": "system",
+   "label": "System"
+  },
+  {
+   "id": "server",
+   "label": "Server"
+  }
+ ],
+ "settings": [
+  {
+   "key": "ssid",
+   "type": "text",
+   "group": "wifi",
+   "label": "WiFi network",
+   "help": "The name of the WiFi network the device joins.",
+   "default": "",
+   "min": 1,
+   "max": 32,
+   "warn": "wifi"
+  },
+  {
+   "key": "pass",
+   "type": "text",
+   "group": "wifi",
+   "label": "WiFi password",
+   "help": "Empty for an open network, otherwise 8 to 64 characters. Never shown again once saved.",
+   "default": "",
+   "min": 8,
+   "max": 64,
+   "allow_empty": true,
+   "secret": true,
+   "warn": "wifi"
+  },
+  {
+   "key": "hostname",
+   "type": "text",
+   "group": "wifi",
+   "label": "Name on the network",
+   "help": "The name the device gives your router (DHCP host name).",
+   "default": "apx-leak",
+   "min": 1,
+   "max": 32,
+   "format": "hostname"
+  },
+  {
+   "key": "buzzer",
+   "type": "bool",
+   "group": "leak",
+   "label": "Beep when it finds water",
+   "help": "",
+   "default": "on"
+  },
+  {
+   "key": "buzzer_min",
+   "type": "number",
+   "group": "leak",
+   "label": "Beep for",
+   "help": "",
+   "default": "5",
+   "min": 1,
+   "max": 60,
+   "unit": "min"
+  },
+  {
+   "key": "alert_freeze",
+   "type": "bool",
+   "group": "alerts",
+   "label": "Frost warning",
+   "help": "For a cellar or a garden shed with water pipes.",
+   "default": "off"
+  },
+  {
+   "key": "freeze_c",
+   "type": "decimal",
+   "group": "alerts",
+   "label": "Warn below",
+   "help": "",
+   "default": "3.0",
+   "min": -20,
+   "max": 10,
+   "decimals": 1,
+   "unit": "°C"
+  },
+  {
+   "key": "log",
+   "type": "bool",
+   "group": "system",
+   "label": "Log on the serial console",
+   "help": "",
+   "default": "off",
+   "advanced": true
+  },
+  {
+   "key": "remote",
+   "type": "bool",
+   "group": "server",
+   "label": "Talks to this server",
+   "help": "Switched on at the device itself (cfg set remote on). The server never changes it.",
+   "default": "off",
+   "locked": true
+  },
+  {
+   "key": "server_url",
+   "type": "text",
+   "group": "server",
+   "label": "Server address",
+   "help": "Typed into the device. The server never changes it.",
+   "default": "",
+   "min": 1,
+   "max": 96,
+   "format": "https_url",
+   "locked": true
+  },
+  {
+   "key": "device_token",
+   "type": "text",
+   "group": "server",
+   "label": "Device token",
+   "help": "Typed into the device. The server never changes it.",
+   "default": "",
+   "min": 32,
+   "max": 64,
+   "secret": true,
+   "locked": true
+  },
+  {
+   "key": "remote_poll_s",
+   "type": "number",
+   "group": "server",
+   "label": "Check in when all is dry",
+   "help": "Seconds between two check-ins while nothing happens.",
+   "default": "3600",
+   "min": 300,
+   "max": 86400,
+   "unit": "s",
+   "advanced": true
+  }
+ ],
+ "commands": [
+  {
+   "name": "silence",
+   "label": "Stop the beeping",
+   "help": "Silences the buzzer; the alert stays until it is dry."
+  },
+  {
+   "name": "identify",
+   "label": "Find it",
+   "help": "The light blinks for 10 seconds, so you know which one it is."
+  },
+  {
+   "name": "reboot",
+   "label": "Restart",
+   "help": "The device restarts after its next check-in.",
+   "danger": 1
+  },
+  {
+   "name": "setup_mode",
+   "label": "Open setup mode",
+   "help": "The device restarts into its own WiFi network for the setup page. It stops checking in here until it is back on your WiFi.",
+   "danger": 1
+  },
+  {
+   "name": "cfg_reset",
+   "label": "Erase all settings",
+   "help": "The device forgets everything, including the WiFi login and this server. You will have to set it up again at the device.",
+   "danger": 2
+  }
+ ],
+ "readings": [
+  {
+   "key": "leak",
+   "path": "leak.wet",
+   "label": "Water",
+   "type": "bool",
+   "on": "Water!",
+   "off": "Dry",
+   "icon": "droplet",
+   "card": true
+  },
+  {
+   "key": "temp_c",
+   "path": "climate.temp_c",
+   "label": "Temperature",
+   "type": "number",
+   "unit": "°C",
+   "decimals": 1,
+   "icon": "thermometer",
+   "chart": true,
+   "card": true
+  },
+  {
+   "key": "battery",
+   "path": "battery.pct",
+   "label": "Battery",
+   "type": "number",
+   "unit": "%",
+   "icon": "battery",
+   "card": true,
+   "chart": true,
+   "min": 0
+  },
+  {
+   "key": "rssi",
+   "path": "wifi.rssi",
+   "label": "WiFi signal",
+   "type": "number",
+   "unit": "dBm",
+   "icon": "wifi",
+   "chart": true
+  }
+ ],
+ "alerts": [
+  {
+   "id": "water",
+   "reading": "leak",
+   "op": "=",
+   "bool": true,
+   "label": "Water detected",
+   "text": "Water at {name}!",
+   "level": "alarm",
+   "action": "silence"
+  },
+  {
+   "id": "freeze",
+   "reading": "temp_c",
+   "op": "<",
+   "setting": "freeze_c",
+   "enabled_setting": "alert_freeze",
+   "label": "Close to freezing",
+   "text": "{name}: {value} {unit}. Pipes may freeze.",
+   "level": "warning"
+  },
+  {
+   "id": "battery_low",
+   "reading": "battery",
+   "op": "<",
+   "value": 15,
+   "label": "Battery low",
+   "text": "{name}: battery at {value} {unit}. Time for new batteries.",
+   "level": "warning"
+  }
+ ],
+ "events": [
+  {
+   "type": "leak",
+   "label": "Water detected",
+   "icon": "droplet",
+   "notify": true
+  },
+  {
+   "type": "dry",
+   "label": "Dry again",
+   "icon": "droplet"
+  }
+ ],
+ "warnings": {
+  "wifi": "If the device cannot log in to the new network it opens its own setup network after a few refused logins."
+ }
+}

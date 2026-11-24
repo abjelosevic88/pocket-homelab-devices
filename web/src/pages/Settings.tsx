@@ -14,7 +14,7 @@ type TabId = 'general' | 'notifications' | 'apps' | 'profile' | 'people' | 'toke
 
 const TABS: { id: TabId; label: string; icon: string; sub: string }[] = [
   { id: 'general', label: 'General', icon: 'sliders', sub: 'The address your devices use to reach this server, the name of the app and how dates look.' },
-  { id: 'notifications', label: 'Notifications', icon: 'bell', sub: 'Hear about it when a device stops checking in or refuses a setting.' },
+  { id: 'notifications', label: 'Notifications', icon: 'bell', sub: 'Hear about it when a device raises an alert, stops checking in or refuses a setting.' },
   { id: 'apps', label: 'Connected apps', icon: 'layers', sub: 'Pocket Weather, to pick a clock’s place and time zone from your places.' },
   { id: 'profile', label: 'Profile', icon: 'user', sub: 'Your name, email and password.' },
   { id: 'people', label: 'People', icon: 'users', sub: 'Everyone who has an account on this box.' },
@@ -140,6 +140,7 @@ function Notifications() {
     <div className="stack loose">
       <Section title="When to tell you" icon="bell">
         <SettingRow title="A device stops checking in" help="After three missed check-ins (about a minute and a half for a clock), and again when it is back. Each device can opt out on its own page."><Switch checked={f.notify_offline} onChange={v => setF({ ...f, notify_offline: v })} label="Offline" /></SettingRow>
+        <SettingRow title="An alert" help="Water under the sink, a battery running low, stuffy air, a door left open: whatever a device's alerts are, the moment they start."><Switch checked={f.notify_alerts} onChange={v => setF({ ...f, notify_alerts: v })} label="Alerts" /></SettingRow>
         <SettingRow title="A device refuses a setting" help="The device keeps its old value and says why."><Switch checked={f.notify_refused} onChange={v => setF({ ...f, notify_refused: v })} label="Refused" /></SettingRow>
       </Section>
       <Section title="Where" icon="send" sub="Your own notification address: an Apprise URL, an ntfy topic or any webhook that takes JSON.">

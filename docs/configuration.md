@@ -18,6 +18,6 @@ Environment variables; every one has a default. Personal settings (notifications
 | `WEATHER_URL`, `WEATHER_TOKEN` | – | Pocket Weather, direct connection (or use Pocket Core): pick a clock's place |
 | `CORE_URL`, `CORE_REGISTRATION_KEY`, `CORE_APP_URL` | – | Pocket Core |
 | `TRUST_PROXY`, `METRICS_ENABLED`, `LOG_LEVEL`, `LOG_FORMAT` | `true`, `true`, `info`, `text` | With `TRUST_PROXY` the device rate limit counts the real client address from `X-Forwarded-For` |
-| `DEMO_DATA` | `false` | Three simulated clocks in the owner's account that check in live (screenshots, trying it out) |
+| `DEMO_DATA` | `false` | One simulated device of every kind in the owner's account, checking in live (screenshots, trying it out) |
 
-Commands: `pocket-devices backup [-o FILE]`, `pocket-devices reset-password [-email] [-password]`, `pocket-devices simulate -url URL -id MAC -token TOKEN [-once]` (behaves like an NTP Clock), `pocket-devices version`.
+Commands: `pocket-devices backup [-o FILE]`, `pocket-devices reset-password [-email] [-password]`, `pocket-devices simulate -kind KIND -url URL -id MAC -token TOKEN [-event press:action=double] [-random] [-once]` (behaves like a device of any kind), `pocket-devices version`.

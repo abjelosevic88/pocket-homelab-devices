@@ -1,4 +1,4 @@
-// README screenshots and a browser smoke test, against a demo instance (DEMO_DATA=true seeds three clocks that check in live):
+// README screenshots and a browser smoke test, against a demo instance (DEMO_DATA=true seeds one device of every kind, checking in live):
 //
 //   DATA_DIR=/tmp/devices-demo DEMO_DATA=true ADMIN_EMAIL=demo@example.com ADMIN_PASSWORD=demodemo1 ADMIN_NAME=Maya PORT=18282 BASE_URL=https://devices.example.com ./pocket-devices
 //   CDP=http://127.0.0.1:19271 BASE=http://127.0.0.1:18282 node scripts/screenshots.mjs   # any Chrome with remote debugging
@@ -60,20 +60,20 @@ async function deviceId(page, name) {
   await shot(page, 'desktop-commands')
   await go(page, `/devices/${bed}?tab=history`)
   await shot(page, 'desktop-history')
-  await go(page, '/')
-  await page.getByRole('button', { name: 'Add a device' }).first().click()
-  await page.getByLabel('Name').fill('Living room clock')
-  await page.getByLabel('WiFi MAC address').fill('24:6F:28:A1:B2:C3')
-  await page.getByRole('button', { name: 'Add and get the token' }).click()
-  await page.waitForTimeout(800)
-  assert.ok((await page.content()).includes('cfg set device_token'), 'adding shows the console lines')
-  await shot(page, 'desktop-add')
+  const air = await deviceId(page, 'Office air')
+  await go(page, `/devices/${air}`, 2500)
+  assert.ok((await page.content()).includes('CO₂'), 'the air monitor shows CO2')
+  await shot(page, 'desktop-air')
+  const btn = await deviceId(page, 'Desk button')
+  await go(page, `/devices/${btn}`, 2500)
+  assert.ok((await page.content()).includes('Lately'), 'the button shows its presses')
+  await shot(page, 'desktop-button')
   await go(page, '/settings/general')
   await shot(page, 'desktop-settings-page')
   await ctx.close()
 }
 
-// ---- a setting being changed (1.5×: headless Chrome cannot capture the sticky save bar over a tall page at 2×) ----
+// ---- a setting being changed, adding a device (1.5×: headless Chrome cannot capture the sticky save bar or a tall dialog at 2×) ----
 {
   const { ctx, page } = await session({ scale: 1.5 })
   const bed = await deviceId(page, 'Bedroom clock')
@@ -85,6 +85,18 @@ async function deviceId(page, name) {
   await page.waitForTimeout(300)
   await shot(page, 'desktop-settings')
   await page.getByRole('button', { name: 'Discard' }).click()
+  await go(page, '/')
+  await page.getByRole('button', { name: 'Add a device' }).first().click()
+  await page.waitForTimeout(400)
+  assert.ok((await page.content()).includes('Water leak sensor'), 'the kind picker lists every kind')
+  await shot(page, 'desktop-kinds')
+  await page.getByRole('button', { name: /Door & window sensor/ }).click()
+  await page.getByLabel('Name').fill('Garage door')
+  await page.getByLabel('WiFi MAC address').fill('246F28' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0').toUpperCase())
+  await page.getByRole('button', { name: 'Add and get the token' }).click()
+  await page.waitForTimeout(800)
+  assert.ok((await page.content()).includes('cfg set device_token'), 'adding shows the console lines')
+  await shot(page, 'desktop-add')
   await ctx.close()
 }
 
@@ -94,7 +106,8 @@ async function deviceId(page, name) {
   await go(page, '/')
   await shot(page, 'phone-home')
   const bed = await deviceId(page, 'Bedroom clock')
-  await go(page, `/devices/${bed}`, 2500)
+  const leak = await deviceId(page, 'Under the sink')
+  await go(page, `/devices/${leak}`, 2500)
   await shot(page, 'phone-device')
   await go(page, `/devices/${bed}?tab=settings`)
   await page.evaluate(() => { const h = [...document.querySelectorAll('h3')].find(x => x.textContent === 'Alarm'); h?.scrollIntoView() })

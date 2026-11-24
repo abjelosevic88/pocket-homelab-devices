@@ -68,7 +68,8 @@ func (s *Server) Router() http.Handler {
 			r.Post("/devices/{id}/commands", s.handleCommand)
 			r.Delete("/devices/{id}/commands/{cid}", s.handleCancelCommand)
 			r.Get("/devices/{id}/log", s.handleDeviceLog)
-			r.Get("/devices/{id}/samples", s.handleSamples)
+			r.Get("/devices/{id}/readings", s.handleReadings)
+			r.Get("/devices/{id}/events", s.handleEvents)
 			r.Get("/tz", s.handlePosixTZ)
 
 			// Pocket Weather: a clock's place

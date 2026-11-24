@@ -20,10 +20,13 @@ import (
 //go:embed *.json
 var files embed.FS
 
-// Option is one allowed value of an enum (or a labelled number).
+// Option is one allowed value of an enum (or a labelled number). Setting,
+// on an event field's option, names the device setting that says what it
+// means to the person (a button's "double_name": "Focus timer").
 type Option struct {
-	Value string `json:"value"`
-	Label string `json:"label"`
+	Value   string `json:"value"`
+	Label   string `json:"label"`
+	Setting string `json:"setting,omitempty"`
 }
 
 // Setting is one row of a kind's setting table. Values travel as strings in
@@ -42,6 +45,7 @@ type Setting struct {
 	Options    []Option `json:"options,omitempty"`
 	Presets    []Option `json:"presets,omitempty"` // suggestions for a text field (time zones)
 	Unit       string   `json:"unit,omitempty"`
+	Decimals   int      `json:"decimals,omitempty"` // decimal: places after the point
 	Secret     bool     `json:"secret,omitempty"`   // the device reports "****"; never shown in the browser
 	Locked     bool     `json:"locked,omitempty"`   // never changed by the server
 	Reboot     bool     `json:"reboot,omitempty"`   // takes effect after a restart
@@ -58,6 +62,62 @@ type Arg struct {
 	Min     float64 `json:"min"`
 	Max     float64 `json:"max"`
 	Default float64 `json:"default"`
+	// DefaultSetting takes the default from the device's setting (the clock's alarm sound).
+	DefaultSetting string `json:"default_setting,omitempty"`
+}
+
+// Reading is something a device reports: a temperature, a battery level,
+// whether a door is open. Path is where it sits in the report ("climate.temp_c"),
+// or "config.<key>" for one of the device's own settings.
+type Reading struct {
+	Key      string   `json:"key"`
+	Path     string   `json:"path"`
+	Label    string   `json:"label"`
+	Type     string   `json:"type"` // number | bool | text
+	Unit     string   `json:"unit,omitempty"`
+	Decimals int      `json:"decimals,omitempty"`
+	Icon     string   `json:"icon,omitempty"`
+	On       string   `json:"on,omitempty"`  // bool: the word for true ("Open")
+	Off      string   `json:"off,omitempty"` // bool: the word for false ("Closed")
+	Chart    bool     `json:"chart,omitempty"`
+	Card     bool     `json:"card,omitempty"`    // shown on the device's card in the list
+	Sub      string   `json:"sub,omitempty"`     // another reading shown under this one
+	Min      float64  `json:"min,omitempty"`     // chart floor (0 = automatic)
+	Options  []Option `json:"options,omitempty"` // text: labels for the values the device sends
+}
+
+// Alert is a condition on a reading the person hears about: battery low,
+// water detected, CO2 too high. The threshold is a fixed value or one of the
+// device's settings; EnabledSetting switches it off with a device setting.
+type Alert struct {
+	ID             string  `json:"id"`
+	Reading        string  `json:"reading"`
+	Op             string  `json:"op"` // < | > | =
+	Value          float64 `json:"value,omitempty"`
+	Bool           *bool   `json:"bool,omitempty"`    // for = on a bool reading
+	Setting        string  `json:"setting,omitempty"` // the threshold is this setting's value
+	EnabledSetting string  `json:"enabled_setting,omitempty"`
+	Label          string  `json:"label"`
+	Text           string  `json:"text,omitempty"`   // the message; {value} {unit} {name} are filled in
+	Level          string  `json:"level"`            // info | warning | alarm
+	Action         string  `json:"action,omitempty"` // a command offered next to it ("alarm_stop")
+}
+
+// EventField is one field of a device event, with its allowed values.
+type EventField struct {
+	Name    string   `json:"name"`
+	Label   string   `json:"label"`
+	Options []Option `json:"options,omitempty"`
+}
+
+// Event is something a device tells as it happens: a button press, a door
+// opening, motion. Sent in the optional "events" field of the sync request.
+type Event struct {
+	Type   string       `json:"type"`
+	Label  string       `json:"label"`
+	Icon   string       `json:"icon,omitempty"`
+	Fields []EventField `json:"fields,omitempty"`
+	Notify bool         `json:"notify,omitempty"` // tell the person every time (water!)
 }
 
 // Command is something the device can be told to do now.
@@ -82,6 +142,8 @@ type Kind struct {
 	Protocol string `json:"protocol"`
 	Summary  string `json:"summary"`
 	Icon     string `json:"icon"`
+	Category string `json:"category"` // clock | sensor | button | switch
+	Power    string `json:"power"`    // mains | usb | battery
 	HWID     struct {
 		Label   string `json:"label"`
 		Help    string `json:"help"`
@@ -102,7 +164,9 @@ type Kind struct {
 	Groups    []Group           `json:"groups"`
 	Settings  []Setting         `json:"settings"`
 	Commands  []Command         `json:"commands"`
-	Status    map[string]string `json:"status"`
+	Readings  []Reading         `json:"readings"`
+	Alerts    []Alert           `json:"alerts"`
+	Events    []Event           `json:"events"`
 	Warnings  map[string]string `json:"warnings"`
 
 	byKey map[string]*Setting
@@ -156,7 +220,7 @@ func Parse(b []byte) (*Kind, error) {
 			return nil, fmt.Errorf("setting %s: unknown group %q", s.Key, s.Group)
 		}
 		switch s.Type {
-		case "text", "number", "bool", "hhmm", "days", "enum", "coord":
+		case "text", "number", "bool", "hhmm", "days", "enum", "coord", "decimal":
 		default:
 			return nil, fmt.Errorf("setting %s: unknown type %q", s.Key, s.Type)
 		}
@@ -166,6 +230,65 @@ func Parse(b []byte) (*Kind, error) {
 	}
 	if k.Token.Min == 0 {
 		k.Token.Min, k.Token.Max = 32, 64
+	}
+	readings := map[string]*Reading{}
+	for i := range k.Readings {
+		r := &k.Readings[i]
+		if r.Key == "" || readings[r.Key] != nil || r.Path == "" {
+			return nil, fmt.Errorf("reading %d: empty or duplicate key %q, or no path", i, r.Key)
+		}
+		switch r.Type {
+		case "number", "bool", "text":
+		default:
+			return nil, fmt.Errorf("reading %s: unknown type %q", r.Key, r.Type)
+		}
+		if cfg, ok := strings.CutPrefix(r.Path, "config."); ok && k.byKey[cfg] == nil {
+			return nil, fmt.Errorf("reading %s: no setting %q", r.Key, cfg)
+		}
+		readings[r.Key] = r
+	}
+	for _, r := range k.Readings {
+		if r.Sub != "" && readings[r.Sub] == nil {
+			return nil, fmt.Errorf("reading %s: sub %q is not a reading", r.Key, r.Sub)
+		}
+	}
+	for i, a := range k.Alerts {
+		r := readings[a.Reading]
+		if a.ID == "" || r == nil {
+			return nil, fmt.Errorf("alert %d (%s): unknown reading %q", i, a.ID, a.Reading)
+		}
+		switch a.Op {
+		case "<", ">", "=":
+		default:
+			return nil, fmt.Errorf("alert %s: op is <, > or =", a.ID)
+		}
+		if (r.Type == "bool") != (a.Bool != nil) {
+			return nil, fmt.Errorf("alert %s: a bool reading needs \"bool\", a number reading a value", a.ID)
+		}
+		for _, key := range []string{a.Setting, a.EnabledSetting} {
+			if key != "" && k.byKey[key] == nil {
+				return nil, fmt.Errorf("alert %s: no setting %q", a.ID, key)
+			}
+		}
+		if a.Action != "" {
+			if _, ok := k.Command(a.Action); !ok {
+				return nil, fmt.Errorf("alert %s: no command %q", a.ID, a.Action)
+			}
+		}
+	}
+	seenEv := map[string]bool{}
+	for _, e := range k.Events {
+		if e.Type == "" || seenEv[e.Type] {
+			return nil, fmt.Errorf("event: empty or duplicate type %q", e.Type)
+		}
+		seenEv[e.Type] = true
+	}
+	for _, c := range k.Commands {
+		for _, a := range c.Args {
+			if a.DefaultSetting != "" && k.byKey[a.DefaultSetting] == nil {
+				return nil, fmt.Errorf("command %s: no setting %q", c.Name, a.DefaultSetting)
+			}
+		}
 	}
 	if k.Poll.Default == 0 {
 		k.Poll.Default, k.Poll.Min, k.Poll.Max = 30, 10, 3600
@@ -208,8 +331,10 @@ func (k *Kind) Warning(key string) string {
 
 var (
 	reMAC      = regexp.MustCompile(`^[0-9A-F]{12}$`)
+	reSerial   = regexp.MustCompile(`^[0-9A-Z][0-9A-Z-]{2,30}[0-9A-Z]$`)
 	reHHMM     = regexp.MustCompile(`^([01]?\d|2[0-3]):([0-5]\d)$`)
 	reInt      = regexp.MustCompile(`^[+-]?\d+$`)
+	reDecimal  = regexp.MustCompile(`^[+-]?\d+(\.\d+)?$`)
 	reCoord    = regexp.MustCompile(`^[+-]?\d{1,3}(\.\d{1,6})?$`)
 	reHostname = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$`)
 	reHost     = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$`)
@@ -220,13 +345,151 @@ var (
 	reTZ   = regexp.MustCompile(`^` + tzName + tzOff + `(?:` + tzName + `(?:` + tzOff + `)?(?:,` + tzRule + `,` + tzRule + `)?)?$`)
 )
 
-// NormalizeHWID turns "a1:b2:c3:d4:e5:f6" into "A1B2C3D4E5F6" and checks it.
+// NormalizeHWID checks how a device names itself: "mac12" turns
+// "a1:b2:c3:d4:e5:f6" into "A1B2C3D4E5F6"; "serial" is 4 to 32 letters,
+// digits and dashes, upper case.
 func (k *Kind) NormalizeHWID(v string) (string, error) {
+	if k.HWID.Format == "serial" {
+		v = strings.ToUpper(strings.TrimSpace(v))
+		if !reSerial.MatchString(v) {
+			return "", fmt.Errorf("a serial number is 4 to 32 letters, digits and dashes, like %s", k.HWID.Example)
+		}
+		return v, nil
+	}
 	v = strings.ToUpper(strings.NewReplacer(":", "", "-", "", " ", "", ".", "").Replace(strings.TrimSpace(v)))
 	if !reMAC.MatchString(v) {
 		return "", fmt.Errorf("a MAC address is 12 characters 0-9 and A-F, like %s", k.HWID.Example)
 	}
 	return v, nil
+}
+
+// Reading returns a reading by key.
+func (k *Kind) Reading(key string) (*Reading, bool) {
+	for i := range k.Readings {
+		if k.Readings[i].Key == key {
+			return &k.Readings[i], true
+		}
+	}
+	return nil, false
+}
+
+// Event returns an event type.
+func (k *Kind) Event(typ string) (*Event, bool) {
+	for i := range k.Events {
+		if k.Events[i].Type == typ {
+			return &k.Events[i], true
+		}
+	}
+	return nil, false
+}
+
+// Values reads every reading out of a report (status) and the reported
+// settings: numbers as float64, bools as bool, text as string. A reading the
+// device did not send is left out.
+func (k *Kind) Values(status map[string]any, reported map[string]string) map[string]any {
+	out := map[string]any{}
+	for _, r := range k.Readings {
+		var raw any
+		if cfg, ok := strings.CutPrefix(r.Path, "config."); ok {
+			v, ok := reported[cfg]
+			if !ok {
+				continue
+			}
+			raw = v
+		} else {
+			v, ok := lookup(status, r.Path)
+			if !ok || v == nil {
+				continue
+			}
+			raw = v
+		}
+		switch r.Type {
+		case "number":
+			switch x := raw.(type) {
+			case float64:
+				out[r.Key] = x
+			case string:
+				if f, err := strconv.ParseFloat(x, 64); err == nil {
+					out[r.Key] = f
+				}
+			}
+		case "bool":
+			switch x := raw.(type) {
+			case bool:
+				out[r.Key] = x
+			case float64:
+				out[r.Key] = x != 0
+			case string:
+				out[r.Key] = x == "on" || x == "true" || x == "1"
+			}
+		default:
+			out[r.Key] = fmt.Sprint(raw)
+		}
+	}
+	return out
+}
+
+func lookup(m map[string]any, path string) (any, bool) {
+	head, rest, nested := strings.Cut(path, ".")
+	v, ok := m[head]
+	if !ok {
+		return nil, false
+	}
+	if !nested {
+		return v, true
+	}
+	sub, ok := v.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	return lookup(sub, rest)
+}
+
+// ActiveAlerts are the alerts whose condition holds now, by id. Settings
+// (thresholds, on/off switches) come from what the device reports.
+func (k *Kind) ActiveAlerts(values map[string]any, settings map[string]string) []string {
+	var out []string
+	for _, a := range k.Alerts {
+		if a.EnabledSetting != "" && settings[a.EnabledSetting] != "on" {
+			continue
+		}
+		v, ok := values[a.Reading]
+		if !ok {
+			continue
+		}
+		if a.Bool != nil {
+			if b, ok := v.(bool); ok && b == *a.Bool {
+				out = append(out, a.ID)
+			}
+			continue
+		}
+		f, ok := v.(float64)
+		if !ok {
+			continue
+		}
+		limit := a.Value
+		if a.Setting != "" {
+			s, err := strconv.ParseFloat(settings[a.Setting], 64)
+			if err != nil {
+				continue
+			}
+			limit = s
+		}
+		if (a.Op == "<" && f < limit) || (a.Op == ">" && f > limit) || (a.Op == "=" && f == limit) {
+			out = append(out, a.ID)
+		}
+	}
+	return out
+}
+
+// Alert returns an alert by id.
+func (k *Kind) Alert(id string) (*Alert, bool) {
+	for i := range k.Alerts {
+		if k.Alerts[i].ID == id {
+			return &k.Alerts[i], true
+		}
+	}
+	return nil, false
 }
 
 // Days are the weekday names of the days type, Monday first.
@@ -293,6 +556,23 @@ func (s *Setting) Normalize(v string) (string, error) {
 		out := strconv.FormatFloat(f, 'f', 6, 64)
 		if out == "-0.000000" {
 			out = "0.000000"
+		}
+		return out, nil
+	case "decimal":
+		v = strings.TrimSpace(strings.Replace(v, ",", ".", 1))
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || !reDecimal.MatchString(v) {
+			return "", fmt.Errorf("a number like 1.5")
+		}
+		if (s.Min != nil && f < *s.Min) || (s.Max != nil && f > *s.Max) {
+			return "", fmt.Errorf("%s to %s", num(s.Min), num(s.Max))
+		}
+		if i := strings.IndexByte(v, '.'); i >= 0 && len(v)-i-1 > s.Decimals {
+			return "", fmt.Errorf("at most %d decimals", s.Decimals)
+		}
+		out := strconv.FormatFloat(f, 'f', s.Decimals, 64)
+		if strings.Trim(out, "-0.") == "" {
+			out = strings.TrimPrefix(out, "-")
 		}
 		return out, nil
 	case "hhmm":

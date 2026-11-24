@@ -20,9 +20,10 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/abjelosevic88/pocket-homelab-devices/internal/clocksim"
 	"github.com/abjelosevic88/pocket-homelab-devices/internal/config"
+	"github.com/abjelosevic88/pocket-homelab-devices/internal/kinds"
 	"github.com/abjelosevic88/pocket-homelab-devices/internal/server"
+	"github.com/abjelosevic88/pocket-homelab-devices/internal/sim"
 	"github.com/abjelosevic88/pocket-homelab-devices/internal/store"
 	"github.com/abjelosevic88/pocket-homelab-devices/web"
 )
@@ -52,8 +53,8 @@ Usage:
   pocket-devices backup [-o FILE]    write a consistent SQLite backup
   pocket-devices reset-password [-email USER] [-password NEW]
                                    set a user's password (default: first user, random password printed)
-  pocket-devices simulate -url URL -id MAC -token TOKEN [-once]
-                                   behave like an NTP Clock checking in
+  pocket-devices simulate -kind KIND -url URL -id MAC -token TOKEN [-event press:action=double] [-random] [-once]
+                                   behave like a device of any kind checking in
   pocket-devices version             print version
 
 Configuration is read from environment variables, see docs/configuration.md.`)
@@ -219,55 +220,88 @@ func runResetPassword(args []string) {
 	}
 }
 
-// runSimulate behaves like one or more NTP Clocks talking to a server, so the
-// web UI can be tried without hardware: it checks in every poll interval,
-// applies settings with the clock's own rules and answers commands.
+// runSimulate behaves like one device of any kind talking to a server, so
+// the web UI can be tried without hardware: it checks in every poll interval,
+// applies settings with the device's own rules, answers commands and (with
+// -event or -random) tells events like button presses or a door opening.
 func runSimulate(args []string) {
 	fs := flag.NewFlagSet("simulate", flag.ExitOnError)
+	kind := fs.String("kind", "ntp-clock", "the kind of device: "+strings.Join(kindIDs(), ", "))
 	url := fs.String("url", "http://localhost:8080", "the server (server_url, no trailing slash)")
-	id := fs.String("id", "A1B2C3D4E5F6", "the clock's MAC address (device_id)")
+	id := fs.String("id", "A1B2C3D4E5F6", "the device's MAC address (device_id)")
 	token := fs.String("token", "", "the device token shown when the device was added")
-	place := fs.String("place", "Banja Luka", "weather place the clock reports")
+	event := fs.String("event", "", "send one event first, e.g. press:action=double, opened, leak")
+	random := fs.Bool("random", false, "make up activity (presses, doors, motion) and check in when it happens")
 	once := fs.Bool("once", false, "check in once and stop")
 	_ = fs.Parse(args)
 	if *token == "" {
 		fmt.Fprintln(os.Stderr, "simulate: -token is required (add the device in the web UI first)")
 		os.Exit(2)
 	}
-	c := clocksim.New(strings.ToUpper(*id), time.Now().UnixNano())
-	c.Set("ssid", "Simulated")
-	c.Set("place", *place)
-	c.Set("server_url", strings.TrimRight(*url, "/"))
-	c.Set("device_token", *token)
-	c.Log = func(s string) { fmt.Println(time.Now().Format("15:04:05"), s) }
-	cl := &clocksim.Client{URL: strings.TrimRight(*url, "/"), Token: *token}
+	if _, ok := kinds.Get(*kind); !ok {
+		fmt.Fprintln(os.Stderr, "simulate: unknown kind; one of", strings.Join(kindIDs(), ", "))
+		os.Exit(2)
+	}
+	d := sim.New(*kind, strings.ToUpper(*id), time.Now().UnixNano())
+	d.Set("ssid", "Simulated")
+	d.Set("server_url", strings.TrimRight(*url, "/"))
+	d.Set("device_token", *token)
+	if *kind == "ntp-clock" {
+		d.Set("place", "Banja Luka")
+	}
+	d.Log = func(s string) { fmt.Println(time.Now().Format("15:04:05"), s) }
+	if *event != "" {
+		typ, rest, _ := strings.Cut(*event, ":")
+		fields := map[string]any{}
+		for _, kv := range strings.Split(rest, ",") {
+			if k, v, ok := strings.Cut(kv, "="); ok {
+				fields[k] = v
+			}
+		}
+		d.Emit(typ, fields)
+	}
+	cl := &sim.Client{URL: strings.TrimRight(*url, "/"), Token: *token}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	backoff := 5 * time.Second
-	for {
-		code, wait, err := cl.Sync(ctx, c)
-		next := time.Duration(c.PollS) * time.Second
-		switch {
-		case err != nil:
-			fmt.Println(time.Now().Format("15:04:05"), "sync failed:", err)
-			next = backoff
-			if backoff < 5*time.Minute {
-				backoff *= 2
+	next := time.Now()
+	for n := 0; ; n++ {
+		if !time.Now().Before(next) || d.HasPending() {
+			code, wait, err := cl.Sync(ctx, d)
+			next = time.Now().Add(time.Duration(d.PollS) * time.Second)
+			switch {
+			case err != nil:
+				fmt.Println(time.Now().Format("15:04:05"), "sync failed:", err)
+				next = time.Now().Add(backoff)
+				if backoff < 5*time.Minute {
+					backoff *= 2
+				}
+			case code == http.StatusTooManyRequests:
+				fmt.Println(time.Now().Format("15:04:05"), "slow down, waiting", wait)
+				next = time.Now().Add(wait)
+			default:
+				backoff = 5 * time.Second
+				fmt.Printf("%s checked in: rev %d, next in %ds\n", time.Now().Format("15:04:05"), d.Rev(), d.PollS)
 			}
-		case code == http.StatusTooManyRequests:
-			fmt.Println(time.Now().Format("15:04:05"), "slow down, waiting", wait)
-			next = wait
-		default:
-			backoff = 5 * time.Second
-			fmt.Printf("%s checked in: rev %d, next in %ds\n", time.Now().Format("15:04:05"), c.Rev(), c.PollS)
-		}
-		if *once {
-			return
+			if *once {
+				return
+			}
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(next):
+		case <-time.After(2 * time.Second):
+		}
+		if *random && n%10 == 9 {
+			d.Tick(time.Now())
 		}
 	}
+}
+
+func kindIDs() []string {
+	var out []string
+	for _, k := range kinds.All() {
+		out = append(out, k.ID)
+	}
+	return out
 }

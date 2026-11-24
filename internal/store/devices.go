@@ -13,17 +13,17 @@ import (
 )
 
 const deviceCols = `id, user_id, kind, name, hw_id, location, notes, token_hash, token_hint, token_at, poll_s, desired_rev, applied_rev,
-	first_seen_at, last_seen_at, last_ip, status, reported, config_errors, online, notify_offline, demo, created_at, updated_at`
+	first_seen_at, last_seen_at, last_ip, status, reported, config_errors, online, notify_offline, demo, created_at, updated_at, alerts`
 
 type scanner interface{ Scan(...any) error }
 
 func scanDevice(r scanner) (*Device, error) {
 	var d Device
-	var status, reported, errs string
+	var status, reported, errs, alerts string
 	var online, notifyOff, demo int
 	if err := r.Scan(&d.ID, &d.UserID, &d.Kind, &d.Name, &d.HWID, &d.Location, &d.Notes, &d.TokenHash, &d.TokenHint, &d.TokenAt, &d.PollS,
 		&d.DesiredRev, &d.AppliedRev, &d.FirstSeenAt, &d.LastSeenAt, &d.LastIP, &status, &reported, &errs, &online, &notifyOff, &demo,
-		&d.CreatedAt, &d.UpdatedAt); err != nil {
+		&d.CreatedAt, &d.UpdatedAt, &alerts); err != nil {
 		return nil, notFound(err)
 	}
 	d.Status = json.RawMessage(status)
@@ -34,6 +34,8 @@ func scanDevice(r scanner) (*Device, error) {
 	_ = json.Unmarshal([]byte(reported), &d.Reported)
 	d.ConfigErrors = map[string]string{}
 	_ = json.Unmarshal([]byte(errs), &d.ConfigErrors)
+	d.Alerts = map[string]string{}
+	_ = json.Unmarshal([]byte(alerts), &d.Alerts)
 	d.Online, d.NotifyOffline, d.Demo = online == 1, notifyOff == 1, demo == 1
 	return &d, nil
 }
@@ -270,8 +272,8 @@ type SyncIn struct {
 	ConfigErrors map[string]string
 	Results      []CommandResult
 	IP           string
-	RSSI         *int
-	TempC        *float64
+	Readings     map[string]float64 // the kind's chart readings, kept in 5-minute buckets
+	Events       []EventIn
 	Now          time.Time
 	MaxCommands  int
 }
@@ -286,6 +288,15 @@ type SyncOut struct {
 	Refused    map[string]string // refusals not reported before
 	PollS      int
 	TZ         string
+	NewEvents  []Event // events stored now for the first time
+}
+
+// EventIn is one event a device sent.
+type EventIn struct {
+	ExtID string
+	Type  string
+	Data  map[string]any
+	At    time.Time
 }
 
 // Sync stores a report and works out the answer, in one transaction: the
@@ -428,11 +439,30 @@ func (s *Store) Sync(ctx context.Context, d *Device, k *kinds.Kind, in SyncIn) (
 		string(status), mustJSON(reported), mustJSON(errs), in.ConfigRev, rev, now, first, in.IP, cur.ID); err != nil {
 		return nil, err
 	}
-	if in.RSSI != nil || in.TempC != nil {
-		bucket := in.Now.UTC().Truncate(5 * time.Minute).Format(time.RFC3339)
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO device_samples (device_id, user_id, at, rssi, temp_c) VALUES (?, ?, ?, ?, ?)`,
-			cur.ID, cur.UserID, bucket, in.RSSI, in.TempC); err != nil {
+	bucket := in.Now.UTC().Truncate(5 * time.Minute).Format(time.RFC3339)
+	for key, v := range in.Readings {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO device_readings (device_id, user_id, key, at, value) VALUES (?, ?, ?, ?, ?)`,
+			cur.ID, cur.UserID, key, bucket, v); err != nil {
 			return nil, err
+		}
+	}
+	for _, e := range in.Events {
+		at := e.At
+		if at.IsZero() || at.After(in.Now.Add(time.Minute)) {
+			at = in.Now
+		}
+		data := e.Data
+		if data == nil {
+			data = map[string]any{}
+		}
+		res, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO device_events (user_id, device_id, ext_id, type, data, at) VALUES (?, ?, ?, ?, ?, ?)`,
+			cur.UserID, cur.ID, e.ExtID, e.Type, mustJSON(data), at.UTC().Format(time.RFC3339Nano))
+		if err != nil {
+			return nil, err
+		}
+		if n, _ := res.RowsAffected(); n == 1 {
+			id, _ := res.LastInsertId()
+			out.NewEvents = append(out.NewEvents, Event{ID: id, DeviceID: cur.ID, Type: e.Type, Data: data, At: at.UTC().Format(time.RFC3339Nano)})
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -570,48 +600,95 @@ func (s *Store) ListLog(ctx context.Context, uid, deviceID, before int64, limit 
 	return out, rows.Err()
 }
 
-// ---- samples ----
+// ---- readings and events ----
 
-// Samples returns a device's 5-minute points since a time.
-func (s *Store) Samples(ctx context.Context, uid, deviceID int64, since time.Time) ([]Sample, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT at, rssi, temp_c FROM device_samples WHERE user_id = ? AND device_id = ? AND at >= ? ORDER BY at`,
+// Point is one 5-minute value of a reading.
+type Point struct {
+	At    string  `json:"at"`
+	Value float64 `json:"v"`
+}
+
+// Readings returns a device's 5-minute points since a time, by reading key.
+func (s *Store) Readings(ctx context.Context, uid, deviceID int64, since time.Time) (map[string][]Point, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT key, at, value FROM device_readings WHERE user_id = ? AND device_id = ? AND at >= ? ORDER BY key, at`,
 		uid, deviceID, since.UTC().Format(time.RFC3339))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []Sample{}
+	out := map[string][]Point{}
 	for rows.Next() {
-		var p Sample
-		var rssi sql.NullInt64
-		var temp sql.NullFloat64
-		if err := rows.Scan(&p.At, &rssi, &temp); err != nil {
+		var key string
+		var p Point
+		if err := rows.Scan(&key, &p.At, &p.Value); err != nil {
 			return nil, err
 		}
-		if rssi.Valid {
-			v := int(rssi.Int64)
-			p.RSSI = &v
-		}
-		if temp.Valid {
-			v := temp.Float64
-			p.TempC = &v
-		}
-		out = append(out, p)
+		out[key] = append(out[key], p)
 	}
 	return out, rows.Err()
 }
 
-// AddSample stores a point directly (demo history).
-func (s *Store) AddSample(ctx context.Context, uid, deviceID int64, at time.Time, rssi *int, temp *float64) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT OR IGNORE INTO device_samples (device_id, user_id, at, rssi, temp_c) VALUES (?, ?, ?, ?, ?)`,
-		deviceID, uid, at.UTC().Truncate(5*time.Minute).Format(time.RFC3339), rssi, temp)
+// AddReading stores a point directly (demo history).
+func (s *Store) AddReading(ctx context.Context, uid, deviceID int64, key string, at time.Time, v float64) error {
+	_, err := s.DB.ExecContext(ctx, `INSERT OR IGNORE INTO device_readings (device_id, user_id, key, at, value) VALUES (?, ?, ?, ?, ?)`,
+		deviceID, uid, key, at.UTC().Truncate(5*time.Minute).Format(time.RFC3339), v)
 	return err
 }
 
-// Prune drops old samples and old finished commands.
+// ListEvents returns a device's latest events, newest first.
+func (s *Store) ListEvents(ctx context.Context, uid, deviceID, before int64, limit int) ([]Event, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+	q := `SELECT id, device_id, type, data, at FROM device_events WHERE user_id = ? AND device_id = ?`
+	args := []any{uid, deviceID}
+	if before > 0 {
+		q += ` AND id < ?`
+		args = append(args, before)
+	}
+	q += ` ORDER BY at DESC, id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.DB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Event{}
+	for rows.Next() {
+		var e Event
+		var data string
+		if err := rows.Scan(&e.ID, &e.DeviceID, &e.Type, &data, &e.At); err != nil {
+			return nil, err
+		}
+		e.Data = map[string]any{}
+		_ = json.Unmarshal([]byte(data), &e.Data)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// AddEvent stores an event directly (demo history).
+func (s *Store) AddEvent(ctx context.Context, uid, deviceID int64, typ string, data map[string]any, at time.Time) error {
+	if data == nil {
+		data = map[string]any{}
+	}
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO device_events (user_id, device_id, type, data, at) VALUES (?, ?, ?, ?, ?)`, uid, deviceID, typ, mustJSON(data), at.UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+// SetAlerts stores the alerts that hold now (id → since).
+func (s *Store) SetAlerts(ctx context.Context, deviceID int64, alerts map[string]string) error {
+	_, err := s.DB.ExecContext(ctx, `UPDATE devices SET alerts = ? WHERE id = ?`, mustJSON(alerts), deviceID)
+	return err
+}
+
+// Prune drops readings older than 30 days, events older than a year and old finished commands.
 func (s *Store) Prune(ctx context.Context) error {
 	cut := time.Now().UTC().AddDate(0, 0, -30)
-	if _, err := s.DB.ExecContext(ctx, `DELETE FROM device_samples WHERE at < ?`, cut.Format(time.RFC3339)); err != nil {
+	if _, err := s.DB.ExecContext(ctx, `DELETE FROM device_readings WHERE at < ?`, cut.Format(time.RFC3339)); err != nil {
+		return err
+	}
+	if _, err := s.DB.ExecContext(ctx, `DELETE FROM device_events WHERE at < ?`, cut.AddDate(0, 0, -335).Format(time.RFC3339Nano)); err != nil {
 		return err
 	}
 	_, err := s.DB.ExecContext(ctx, `DELETE FROM device_commands WHERE state IN ('done','failed','cancelled','sent') AND created_at < ?`, cut.AddDate(0, 0, -60).Format(time.RFC3339Nano))

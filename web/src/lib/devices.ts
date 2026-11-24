@@ -1,7 +1,7 @@
 // Kinds of hardware and small helpers for device pages.
 import { useEffect, useState } from 'react'
 import { api, V1 } from './api'
-import type { Device, Kind, SettingDef } from './types'
+import type { Device, Kind, ReadingDef, ReadingValue, SettingDef } from './types'
 import { ago, fmtDateTime } from './format'
 
 let kindsCache: Kind[] | null = null
@@ -53,10 +53,31 @@ export function signal(rssi?: number): { label: string; bars: number } {
   return { label: 'Weak', bars: 1 }
 }
 
-export function fmtTemp(c?: number, unit?: string): string {
-  if (c === undefined || c === null) return '—'
-  if (unit === 'f') return `${Math.round((c * 9) / 5 + 32)} °F`
-  return `${c.toFixed(1)} °C`
+/** A reading as people read it: 21.4 °C, Open, 06:30. */
+export function fmtReading(r: ReadingDef | undefined, v: ReadingValue | undefined): string {
+  if (v === undefined || v === null || v === '') return '—'
+  if (!r) return String(v)
+  if (r.type === 'bool') return v ? (r.on || 'Yes') : (r.off || 'No')
+  if (r.type === 'number' && typeof v === 'number') {
+    const n = v.toLocaleString(undefined, { minimumFractionDigits: r.decimals || 0, maximumFractionDigits: r.decimals || 0 })
+    return r.unit ? `${n} ${r.unit}` : n
+  }
+  return r.options?.find(o => o.value === v)?.label || String(v)
+}
+
+/** The icon of a kind (its "icon" in the kind file) as an icon of this app. */
+export function kindIcon(icon: string | undefined): string {
+  return ({ clock: 'alarm-clock' } as Record<string, string>)[icon || ''] || icon || 'cpu'
+}
+
+export const POWER_LABEL: Record<string, string> = { battery: 'Battery', usb: 'USB', mains: 'Mains' }
+export const CATEGORY_LABEL: Record<string, string> = { clock: 'Clocks', sensor: 'Sensors', button: 'Buttons', switch: 'Switches' }
+
+/** The readings shown on a device's card: the kind's "card" ones, battery last. */
+export function cardReadings(kind: Kind | undefined): ReadingDef[] {
+  if (!kind) return []
+  const out = kind.readings.filter(r => r.card)
+  return [...out.filter(r => r.key !== 'battery'), ...out.filter(r => r.key === 'battery')].slice(0, 4)
 }
 
 // ---- the days type: all | weekdays | weekend | none | mon,wed | mon-fri ----
@@ -107,6 +128,7 @@ export function showValue(def: SettingDef | undefined, v: string | null | undefi
   if (def.secret) return v ? 'set' : 'empty'
   if (def.type === 'bool') return v === 'on' ? 'On' : 'Off'
   if (def.type === 'days') return daysLabel(v)
+  if (def.type === 'decimal' && def.unit) return `${v} ${def.unit}`
   const opt = (def.options || []).find(o => o.value === v)
   if (opt) return opt.label
   if (def.key === 'tz') return (def.presets || []).find(p => p.value === v)?.label.replace(/ \(.*\)$/, '') || v
@@ -115,6 +137,7 @@ export function showValue(def: SettingDef | undefined, v: string | null | undefi
 }
 
 export const ACTION_LABEL: Record<string, string> = {
+  alert: 'Alert', alert_cleared: 'Alert over',
   added: 'Added', setting: 'Changed', reset: 'Back to default', command: 'Sent', token: 'New token', refused: 'Refused',
   device_changed: 'Changed at the device', offline: 'Went offline', online: 'Online', renamed: 'Renamed',
 }

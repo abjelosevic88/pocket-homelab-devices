@@ -1,0 +1,534 @@
+{
+ "id": "air-quality",
+ "name": "Air quality monitor",
+ "protocol": "pocket-sync/1",
+ "category": "sensor",
+ "power": "usb",
+ "icon": "wind",
+ "summary": "A USB-powered monitor (ESP32-S3 with an SCD41 CO₂ sensor and a PMSA003 dust sensor) for CO₂, fine dust, volatile compounds, temperature and humidity, with an LED ring that turns yellow and red when it is time to open a window.",
+ "hw_id": {
+  "label": "WiFi MAC address",
+  "help": "12 characters, printed at start-up and by the “wifi” command on the serial console.",
+  "example": "A1B2C3D4E5F6",
+  "format": "mac12"
+ },
+ "token": {
+  "min": 32,
+  "max": 64
+ },
+ "poll": {
+  "default": 30,
+  "min": 10,
+  "max": 3600
+ },
+ "setup": [
+  "cfg set server_url {url}",
+  "cfg set device_token {token}",
+  "cfg set remote on"
+ ],
+ "setup_help": "Connect the USB cable, open the serial console and paste these three lines. The device checks in within a minute.",
+ "groups": [
+  {
+   "id": "wifi",
+   "label": "WiFi"
+  },
+  {
+   "id": "measure",
+   "label": "Measuring"
+  },
+  {
+   "id": "alerts",
+   "label": "Alerts"
+  },
+  {
+   "id": "ring",
+   "label": "LED ring"
+  },
+  {
+   "id": "system",
+   "label": "System"
+  },
+  {
+   "id": "server",
+   "label": "Server"
+  }
+ ],
+ "settings": [
+  {
+   "key": "ssid",
+   "type": "text",
+   "group": "wifi",
+   "label": "WiFi network",
+   "help": "The name of the WiFi network the device joins.",
+   "default": "",
+   "min": 1,
+   "max": 32,
+   "warn": "wifi"
+  },
+  {
+   "key": "pass",
+   "type": "text",
+   "group": "wifi",
+   "label": "WiFi password",
+   "help": "Empty for an open network, otherwise 8 to 64 characters. Never shown again once saved.",
+   "default": "",
+   "min": 8,
+   "max": 64,
+   "allow_empty": true,
+   "secret": true,
+   "warn": "wifi"
+  },
+  {
+   "key": "hostname",
+   "type": "text",
+   "group": "wifi",
+   "label": "Name on the network",
+   "help": "The name the device gives your router (DHCP host name).",
+   "default": "apx-air",
+   "min": 1,
+   "max": 32,
+   "format": "hostname"
+  },
+  {
+   "key": "measure_s",
+   "type": "number",
+   "group": "measure",
+   "label": "Measure every",
+   "help": "",
+   "default": "30",
+   "min": 5,
+   "max": 600,
+   "unit": "s"
+  },
+  {
+   "key": "co2_abc",
+   "type": "bool",
+   "group": "measure",
+   "label": "CO₂ self-calibration",
+   "help": "Assumes the room gets fresh air at least once a week. Switch off in rooms that never do.",
+   "default": "on"
+  },
+  {
+   "key": "fan_clean_days",
+   "type": "number",
+   "group": "measure",
+   "label": "Clean the dust sensor every",
+   "help": "The dust sensor's fan runs at full speed for 10 seconds to blow out dust.",
+   "default": "7",
+   "min": 1,
+   "max": 30,
+   "unit": "days",
+   "advanced": true
+  },
+  {
+   "key": "alert_co2",
+   "type": "bool",
+   "group": "alerts",
+   "label": "CO₂ alerts",
+   "help": "",
+   "default": "on"
+  },
+  {
+   "key": "co2_warn",
+   "type": "number",
+   "group": "alerts",
+   "label": "Open a window above",
+   "help": "CO₂ in ppm: outdoor air is about 420, a stuffy room 1000 and more.",
+   "default": "1000",
+   "min": 400,
+   "max": 5000,
+   "unit": "ppm"
+  },
+  {
+   "key": "co2_alarm",
+   "type": "number",
+   "group": "alerts",
+   "label": "Air really bad above",
+   "help": "",
+   "default": "1400",
+   "min": 400,
+   "max": 5000,
+   "unit": "ppm"
+  },
+  {
+   "key": "pm25_warn",
+   "type": "number",
+   "group": "alerts",
+   "label": "Fine dust warning above",
+   "help": "PM2.5 in µg/m³; the WHO day guideline is 15.",
+   "default": "25",
+   "min": 1,
+   "max": 500,
+   "unit": "µg/m³"
+  },
+  {
+   "key": "ring",
+   "type": "enum",
+   "group": "ring",
+   "label": "The ring shows",
+   "help": "",
+   "default": "co2",
+   "options": [
+    {
+     "value": "co2",
+     "label": "CO₂"
+    },
+    {
+     "value": "pm25",
+     "label": "Fine dust"
+    },
+    {
+     "value": "both",
+     "label": "Both"
+    },
+    {
+     "value": "off",
+     "label": "Nothing"
+    }
+   ]
+  },
+  {
+   "key": "ring_brightness",
+   "type": "number",
+   "group": "ring",
+   "label": "Ring brightness",
+   "help": "",
+   "default": "40",
+   "min": 1,
+   "max": 100,
+   "unit": "%"
+  },
+  {
+   "key": "night",
+   "type": "bool",
+   "group": "ring",
+   "label": "Ring off at night",
+   "help": "",
+   "default": "on"
+  },
+  {
+   "key": "night_from",
+   "type": "hhmm",
+   "group": "ring",
+   "label": "Night from",
+   "help": "",
+   "default": "22:00"
+  },
+  {
+   "key": "night_to",
+   "type": "hhmm",
+   "group": "ring",
+   "label": "Night until",
+   "help": "",
+   "default": "07:00"
+  },
+  {
+   "key": "tz",
+   "type": "text",
+   "group": "ring",
+   "label": "Time zone",
+   "help": "For the night hours. A POSIX time zone string.",
+   "default": "CET-1CEST,M3.5.0,M10.5.0/3",
+   "min": 1,
+   "max": 64,
+   "format": "tz",
+   "presets": [
+    {
+     "label": "UTC",
+     "value": "UTC0"
+    },
+    {
+     "label": "London, Dublin",
+     "value": "GMT0BST,M3.5.0/1,M10.5.0"
+    },
+    {
+     "label": "Lisbon",
+     "value": "WET0WEST,M3.5.0/1,M10.5.0"
+    },
+    {
+     "label": "Central Europe (Banja Luka, Sarajevo, Belgrade, Zagreb, Berlin, Paris, Rome, Vienna)",
+     "value": "CET-1CEST,M3.5.0,M10.5.0/3"
+    },
+    {
+     "label": "Eastern Europe (Athens, Sofia, Bucharest, Helsinki, Kyiv)",
+     "value": "EET-2EEST,M3.5.0/3,M10.5.0/4"
+    },
+    {
+     "label": "Istanbul",
+     "value": "TRT-3"
+    },
+    {
+     "label": "Moscow",
+     "value": "MSK-3"
+    },
+    {
+     "label": "Dubai",
+     "value": "GST-4"
+    },
+    {
+     "label": "India",
+     "value": "IST-5:30"
+    },
+    {
+     "label": "Bangkok",
+     "value": "ICT-7"
+    },
+    {
+     "label": "Singapore",
+     "value": "SGT-8"
+    },
+    {
+     "label": "China",
+     "value": "CST-8"
+    },
+    {
+     "label": "Tokyo",
+     "value": "JST-9"
+    },
+    {
+     "label": "Sydney, Melbourne",
+     "value": "AEST-10AEDT,M10.1.0,M4.1.0/3"
+    },
+    {
+     "label": "Brisbane",
+     "value": "AEST-10"
+    },
+    {
+     "label": "Auckland",
+     "value": "NZST-12NZDT,M9.5.0,M4.1.0/3"
+    },
+    {
+     "label": "Johannesburg",
+     "value": "SAST-2"
+    },
+    {
+     "label": "New York, Toronto",
+     "value": "EST5EDT,M3.2.0,M11.1.0"
+    },
+    {
+     "label": "Chicago",
+     "value": "CST6CDT,M3.2.0,M11.1.0"
+    },
+    {
+     "label": "Denver",
+     "value": "MST7MDT,M3.2.0,M11.1.0"
+    },
+    {
+     "label": "Phoenix",
+     "value": "MST7"
+    },
+    {
+     "label": "Los Angeles, Vancouver",
+     "value": "PST8PDT,M3.2.0,M11.1.0"
+    },
+    {
+     "label": "Anchorage",
+     "value": "AKST9AKDT,M3.2.0,M11.1.0"
+    },
+    {
+     "label": "Honolulu",
+     "value": "HST10"
+    },
+    {
+     "label": "Mexico City",
+     "value": "CST6"
+    },
+    {
+     "label": "São Paulo",
+     "value": "BRT3"
+    },
+    {
+     "label": "Buenos Aires",
+     "value": "ART3"
+    }
+   ]
+  },
+  {
+   "key": "log",
+   "type": "bool",
+   "group": "system",
+   "label": "Log on the serial console",
+   "help": "",
+   "default": "off",
+   "advanced": true
+  },
+  {
+   "key": "remote",
+   "type": "bool",
+   "group": "server",
+   "label": "Talks to this server",
+   "help": "Switched on at the device itself (cfg set remote on). The server never changes it.",
+   "default": "off",
+   "locked": true
+  },
+  {
+   "key": "server_url",
+   "type": "text",
+   "group": "server",
+   "label": "Server address",
+   "help": "Typed into the device. The server never changes it.",
+   "default": "",
+   "min": 1,
+   "max": 96,
+   "format": "https_url",
+   "locked": true
+  },
+  {
+   "key": "device_token",
+   "type": "text",
+   "group": "server",
+   "label": "Device token",
+   "help": "Typed into the device. The server never changes it.",
+   "default": "",
+   "min": 32,
+   "max": 64,
+   "secret": true,
+   "locked": true
+  },
+  {
+   "key": "remote_poll_s",
+   "type": "number",
+   "group": "server",
+   "label": "Check in every (fallback)",
+   "help": "Used only when the server gives no interval.",
+   "default": "30",
+   "min": 10,
+   "max": 3600,
+   "unit": "s",
+   "advanced": true
+  }
+ ],
+ "commands": [
+  {
+   "name": "calibrate_co2",
+   "label": "Calibrate CO₂ to fresh air",
+   "help": "Put it outside or next to an open window for five minutes first: it takes the air it measures as 420 ppm.",
+   "danger": 1
+  },
+  {
+   "name": "clean_fan",
+   "label": "Clean the dust sensor",
+   "help": "Runs the dust sensor's fan at full speed for 10 seconds."
+  },
+  {
+   "name": "identify",
+   "label": "Find it",
+   "help": "The light blinks for 10 seconds, so you know which one it is."
+  },
+  {
+   "name": "reboot",
+   "label": "Restart",
+   "help": "The device restarts after its next check-in.",
+   "danger": 1
+  },
+  {
+   "name": "setup_mode",
+   "label": "Open setup mode",
+   "help": "The device restarts into its own WiFi network for the setup page. It stops checking in here until it is back on your WiFi.",
+   "danger": 1
+  },
+  {
+   "name": "cfg_reset",
+   "label": "Erase all settings",
+   "help": "The device forgets everything, including the WiFi login and this server. You will have to set it up again at the device.",
+   "danger": 2
+  }
+ ],
+ "readings": [
+  {
+   "key": "co2",
+   "path": "air.co2_ppm",
+   "label": "CO₂",
+   "type": "number",
+   "unit": "ppm",
+   "icon": "wind",
+   "chart": true,
+   "card": true
+  },
+  {
+   "key": "pm25",
+   "path": "air.pm25",
+   "label": "Fine dust (PM2.5)",
+   "type": "number",
+   "unit": "µg/m³",
+   "icon": "cloud",
+   "chart": true,
+   "card": true,
+   "min": 0,
+   "decimals": 1
+  },
+  {
+   "key": "voc",
+   "path": "air.voc_index",
+   "label": "Volatile compounds",
+   "type": "number",
+   "icon": "sparkles",
+   "chart": true,
+   "min": 0
+  },
+  {
+   "key": "temp_c",
+   "path": "climate.temp_c",
+   "label": "Temperature",
+   "type": "number",
+   "unit": "°C",
+   "decimals": 1,
+   "icon": "thermometer",
+   "chart": true
+  },
+  {
+   "key": "humidity",
+   "path": "climate.humidity",
+   "label": "Humidity",
+   "type": "number",
+   "unit": "%",
+   "icon": "droplet",
+   "chart": true,
+   "min": 0
+  },
+  {
+   "key": "rssi",
+   "path": "wifi.rssi",
+   "label": "WiFi signal",
+   "type": "number",
+   "unit": "dBm",
+   "icon": "wifi",
+   "chart": true
+  }
+ ],
+ "alerts": [
+  {
+   "id": "co2_high",
+   "reading": "co2",
+   "op": ">",
+   "setting": "co2_warn",
+   "enabled_setting": "alert_co2",
+   "label": "Stuffy air",
+   "text": "{name}: CO₂ at {value} {unit}. Open a window.",
+   "level": "warning"
+  },
+  {
+   "id": "co2_very_high",
+   "reading": "co2",
+   "op": ">",
+   "setting": "co2_alarm",
+   "enabled_setting": "alert_co2",
+   "label": "Air really bad",
+   "text": "{name}: CO₂ at {value} {unit}. Air the room now.",
+   "level": "alarm"
+  },
+  {
+   "id": "dust_high",
+   "reading": "pm25",
+   "op": ">",
+   "setting": "pm25_warn",
+   "label": "Fine dust",
+   "text": "{name}: fine dust at {value} {unit}.",
+   "level": "warning"
+  }
+ ],
+ "events": [],
+ "warnings": {
+  "wifi": "If the device cannot log in to the new network it opens its own setup network after a few refused logins."
+ }
+}

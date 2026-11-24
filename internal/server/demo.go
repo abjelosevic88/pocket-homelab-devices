@@ -8,114 +8,173 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/abjelosevic88/pocket-homelab-devices/internal/clocksim"
 	"github.com/abjelosevic88/pocket-homelab-devices/internal/kinds"
+	"github.com/abjelosevic88/pocket-homelab-devices/internal/sim"
 	"github.com/abjelosevic88/pocket-homelab-devices/internal/store"
 )
 
-// demoClock is a simulated clock living inside the server (DEMO_DATA=true):
+// demoDev is a simulated device living inside the server (DEMO_DATA=true):
 // it checks in like a real one, so every screen can be tried without hardware.
-type demoClock struct {
-	clock *clocksim.Clock
+type demoDev struct {
+	dev   *sim.Device
 	nudge chan struct{}
-	ring  bool // rings now and then until someone stops it
+	ring  bool // a clock that rings now and then until someone stops it
 }
 
 type demoSpec struct {
-	name, hwid, location, place, lat, lon string
-	display, alarm, alarmTime, days       string
-	live                                  bool
-	offlineFor                            time.Duration
+	kind, name, hwid, location string
+	settings                   map[string]string // set here over the last weeks
+	device                     map[string]string // what the device has besides its defaults
+	offlineFor                 time.Duration     // > 0: stopped checking in that long ago
 }
+
+var demoHome = map[string]string{"place": "Banja Luka", "lat": "44.772186", "lon": "17.191000", "tz": "CET-1CEST,M3.5.0,M10.5.0/3"}
 
 var demoSpecs = []demoSpec{
-	{"Bedroom clock", "A1B2C3D4E5F6", "Bedroom", "Banja Luka", "44.772186", "17.191000", "seg7", "on", "06:30", "weekdays", true, 0},
-	{"Kitchen clock", "3C71BF0A9E12", "Kitchen", "Banja Luka", "44.772186", "17.191000", "lcd", "off", "07:00", "all", true, 0},
-	{"Office clock", "7CDFA1B3C4D5", "Office", "Sarajevo", "43.856430", "18.413029", "seg7", "off", "07:00", "all", false, 52 * time.Hour},
+	{"ntp-clock", "Bedroom clock", "A1B2C3D4E5F6", "Bedroom", map[string]string{"alarm": "on", "alarm_time": "06:30", "alarm_days": "weekdays", "brightness": "40", "bright_auto": "off", "chime": "off"}, demoHome, 0},
+	{"ntp-clock", "Kitchen clock", "3C71BF0A9E12", "Kitchen", map[string]string{"alarm": "off"}, map[string]string{"display": "lcd", "place": "Banja Luka", "lat": "44.772186", "lon": "17.191000", "tz": "CET-1CEST,M3.5.0,M10.5.0/3"}, 0},
+	{"ntp-clock", "Office clock", "7CDFA1B3C4D5", "Office", map[string]string{"show_seconds": "off"}, map[string]string{"place": "Sarajevo", "lat": "43.856430", "lon": "18.413029"}, 52 * time.Hour},
+	{"climate-sensor", "Living room climate", "84F703A1C2E0", "Living room", map[string]string{"alert_temp": "on", "temp_high": "26.0", "temp_low": "18.0"}, nil, 0},
+	{"climate-sensor", "Bathroom climate", "84F703A1C2E4", "Bathroom", map[string]string{"alert_hum": "on", "hum_high": "45"}, nil, 0},
+	{"air-quality", "Office air", "F412FA55B0A8", "Office", map[string]string{"co2_warn": "900", "ring_brightness": "25"}, nil, 0},
+	{"contact-sensor", "Front door", "60550F1A2B3C", "Hallway", map[string]string{"open_warn_min": "5"}, nil, 0},
+	{"motion-sensor", "Hallway motion", "60550F1A2B40", "Hallway", map[string]string{"hold_s": "120"}, nil, 0},
+	{"button", "Desk button", "34851870A1B2", "Office", map[string]string{"single_name": "Desk lamp", "double_name": "Focus timer", "long_name": "Do not disturb"}, nil, 0},
+	{"smart-plug", "Coffee machine", "E8DB84C1D2E3", "Kitchen", map[string]string{"auto_off_min": "90"}, nil, 0},
+	{"leak-sensor", "Under the sink", "48E72994B1C0", "Kitchen", map[string]string{"alert_freeze": "off"}, nil, 0},
 }
 
-// seedDemo adds three clocks to the owner's account: two that check in live
-// and one that went offline two days ago, with two weeks of history. Runs once.
+// seedDemo adds one of every kind of device to the owner's account, with
+// two weeks of readings and a few days of events; all but one check in live.
 func (s *Server) seedDemo(ctx context.Context, owner int64) error {
 	ctx = context.WithoutCancel(ctx)
-	key := fmt.Sprintf("seeded:%d:demo", owner)
+	key := fmt.Sprintf("seeded:%d:demo2", owner)
 	if _, _, done := s.store.CacheGet(ctx, key); done {
 		return nil
 	}
-	k, _ := kinds.Get("ntp-clock")
+	if _, _, old := s.store.CacheGet(ctx, fmt.Sprintf("seeded:%d:demo", owner)); old {
+		return nil // seeded by 0.1: keep what is there
+	}
 	rng := rand.New(rand.NewSource(42))
 	now := time.Now()
+	base := firstNonEmpty(s.cfg.BaseURL, "https://devices.example.com")
 	for i, sp := range demoSpecs {
+		k, _ := kinds.Get(sp.kind)
+		live := sp.offlineFor == 0
 		d := &store.Device{Kind: k.ID, Name: sp.name, HWID: sp.hwid, Location: sp.location, TokenHash: store.HashToken(store.RandomToken(20)),
-			TokenHint: "demo00", PollS: 30, NotifyOffline: true, Demo: sp.live}
+			TokenHint: "demo00", PollS: k.Poll.Default, NotifyOffline: true, Demo: live}
 		if err := s.store.CreateDevice(ctx, owner, d, "demo"); err != nil {
 			return err
 		}
-		c := newDemoClock(sp.hwid, int64(i+1), firstNonEmpty(s.cfg.BaseURL, "https://devices.example.com"))
-		c.Set("place", sp.place)
-		c.Set("lat", sp.lat)
-		c.Set("lon", sp.lon)
-		c.Set("display", sp.display)
-		// what the person set here over the last weeks
-		desired := map[string]string{"tz": "CET-1CEST,M3.5.0,M10.5.0/3", "place": sp.place, "lat": sp.lat, "lon": sp.lon, "alarm": sp.alarm, "alarm_time": sp.alarmTime, "alarm_days": sp.days}
-		if i == 0 {
-			desired["brightness"], desired["bright_auto"], desired["chime"] = "40", "off", "off"
+		dev := newDemoDev(k.ID, sp.hwid, int64(i+1), base)
+		for key, v := range sp.device {
+			dev.Set(key, v)
 		}
-		if _, _, err := s.store.SetDesired(ctx, owner, d.ID, k, desired, "Aleksandar", "setting"); err != nil {
+		if _, _, err := s.store.SetDesired(ctx, owner, d.ID, k, sp.settings, "Aleksandar", "setting"); err != nil {
 			return err
 		}
 		// the first check-in takes the revision, the second confirms it
 		for range 2 {
-			req := c.Request()
-			if out, err := s.syncDevice(ctx, d, mustMarshal(req), parseReq(req), c.IP); err == nil {
-				c.Apply(toResp(out))
+			req := dev.Request()
+			if out, err := s.syncDevice(ctx, d, mustMarshal(req), parseReq(req), dev.IP); err == nil {
+				dev.Apply(toResp(out))
+			}
+			d, _ = s.store.DeviceByID(ctx, d.ID)
+		}
+		// two weeks of readings
+		end := now
+		if !live {
+			end = now.Add(-sp.offlineFor)
+		}
+		for t := now.Add(-14 * 24 * time.Hour); t.Before(end); t = t.Add(5 * time.Minute) {
+			values := k.Values(roundTrip(dev.StatusAt(t)), d.Reported)
+			values["rssi"] = math.Round(-52 - float64(i)*2 + 2*math.Sin(float64(t.Unix())/5400+float64(i)) + rng.Float64()*0.8)
+			for _, r := range k.Readings {
+				if f, ok := values[r.Key].(float64); ok && r.Chart {
+					if err := s.store.AddReading(ctx, owner, d.ID, r.Key, t, f); err != nil {
+						return err
+					}
+				}
 			}
 		}
-		// history: two weeks of temperature and signal
-		drift := 0.0
-		for t := now.Add(-14 * 24 * time.Hour); t.Before(now); t = t.Add(5 * time.Minute) {
-			if !sp.live && t.After(now.Add(-sp.offlineFor)) {
-				break
-			}
-			h := float64(t.Hour()) + float64(t.Minute())/60
-			day := float64(t.YearDay())
-			temp := 5 + 3*math.Sin(day/3) + 4.5*math.Sin((h-9)/24*2*math.Pi) + rng.Float64()*0.6
-			temp = math.Round(temp*10) / 10
-			drift += (rng.Float64() - .5) * .8
-			drift = math.Max(-4, math.Min(4, drift))
-			rssi := -52 - i*7 + int(math.Round(drift+1.5*math.Sin(h/24*2*math.Pi)))
-			if err := s.store.AddSample(ctx, owner, d.ID, t, &rssi, &temp); err != nil {
-				return err
-			}
-		}
-		if !sp.live {
-			seen := now.Add(-sp.offlineFor).UTC().Format(time.RFC3339Nano)
+		s.seedDemoEvents(ctx, owner, d.ID, k, rng, now)
+		if !live {
+			seen := end.UTC().Format(time.RFC3339Nano)
 			_, _ = s.store.DB.ExecContext(ctx, `UPDATE devices SET last_seen_at = ?, online = 0, first_seen_at = ? WHERE id = ?`, seen, now.Add(-40*24*time.Hour).UTC().Format(time.RFC3339Nano), d.ID)
 			_ = s.store.AddLog(ctx, owner, d.ID, store.LogEntry{Actor: "device", Action: "offline", Detail: "stopped checking in"})
 			// changed while it was away: waits for its return
-			_, _, _ = s.store.SetDesired(ctx, owner, d.ID, k, map[string]string{"brightness": "70", "show_seconds": "off"}, "Aleksandar", "setting")
+			_, _, _ = s.store.SetDesired(ctx, owner, d.ID, k, map[string]string{"brightness": "70"}, "Aleksandar", "setting")
 			continue
 		}
-		if i == 1 {
+		if sp.name == "Kitchen clock" {
 			for _, name := range []string{"sync_time", "weather_refresh"} {
 				_, _ = s.store.QueueCommand(ctx, owner, d.ID, name, nil, "Aleksandar")
 			}
 		}
 		s.demoMu.Lock()
-		s.demo[d.ID] = &demoClock{clock: c, nudge: make(chan struct{}, 1), ring: i == 0}
+		s.demo[d.ID] = &demoDev{dev: dev, nudge: make(chan struct{}, 1), ring: sp.name == "Bedroom clock"}
 		s.demoMu.Unlock()
 	}
 	return s.store.CachePut(ctx, key, "1")
 }
 
-func newDemoClock(hwid string, seed int64, url string) *clocksim.Clock {
-	c := clocksim.New(hwid, seed)
-	c.Set("ssid", "Apolyx")
-	c.Set("pass", "correct-horse")
-	c.Set("tz", "CET-1CEST,M3.5.0,M10.5.0/3")
-	c.Set("server_url", url)
-	c.Set("device_token", "demo")
-	return c
+// seedDemoEvents adds three days of presses, doors and motion.
+func (s *Server) seedDemoEvents(ctx context.Context, owner, deviceID int64, k *kinds.Kind, rng *rand.Rand, now time.Time) {
+	if len(k.Events) == 0 {
+		return
+	}
+	open, motion, leaked := false, false, false
+	for t := now.Add(-72 * time.Hour); t.Before(now.Add(-10 * time.Minute)); t = t.Add(time.Duration(10+rng.Intn(50)) * time.Minute) {
+		h := t.Hour()
+		if h < 6 || h > 23 {
+			continue
+		}
+		switch k.ID {
+		case "button":
+			if rng.Float64() < 0.25 {
+				a := []string{"single", "single", "single", "double", "long"}[rng.Intn(5)]
+				_ = s.store.AddEvent(ctx, owner, deviceID, "press", map[string]any{"action": a}, t)
+			}
+		case "contact-sensor":
+			if rng.Float64() < 0.3 {
+				_ = s.store.AddEvent(ctx, owner, deviceID, "opened", nil, t)
+				_ = s.store.AddEvent(ctx, owner, deviceID, "closed", nil, t.Add(time.Duration(10+rng.Intn(120))*time.Second))
+				open = !open
+			}
+		case "motion-sensor":
+			if rng.Float64() < 0.5 {
+				_ = s.store.AddEvent(ctx, owner, deviceID, "motion", nil, t)
+				_ = s.store.AddEvent(ctx, owner, deviceID, "quiet", nil, t.Add(time.Duration(2+rng.Intn(10))*time.Minute))
+				motion = !motion
+			}
+		case "leak-sensor":
+			if !leaked && t.After(now.Add(-48*time.Hour)) {
+				leaked = true
+				_ = s.store.AddEvent(ctx, owner, deviceID, "leak", nil, t)
+				_ = s.store.AddEvent(ctx, owner, deviceID, "dry", nil, t.Add(25*time.Minute))
+			}
+		case "smart-plug":
+			if (h == 7 || h == 14) && rng.Float64() < 0.6 {
+				_ = s.store.AddEvent(ctx, owner, deviceID, "switched", map[string]any{"state": "on", "by": "button"}, t)
+				_ = s.store.AddEvent(ctx, owner, deviceID, "switched", map[string]any{"state": "off", "by": "auto_off"}, t.Add(90*time.Minute))
+			}
+		}
+	}
+}
+
+func newDemoDev(kindID, hwid string, seed int64, url string) *sim.Device {
+	d := sim.New(kindID, hwid, seed)
+	d.Set("ssid", "Apolyx")
+	d.Set("pass", "correct-horse")
+	d.Set("server_url", url)
+	d.Set("device_token", "demo")
+	return d
+}
+
+func roundTrip(m map[string]any) map[string]any {
+	var out map[string]any
+	_ = json.Unmarshal(mustMarshal(m), &out)
+	return out
 }
 
 func mustMarshal(v any) []byte {
@@ -123,63 +182,73 @@ func mustMarshal(v any) []byte {
 	return b
 }
 
-func parseReq(r clocksim.Request) syncReq {
+func parseReq(r sim.Request) syncReq {
 	var out syncReq
 	_ = json.Unmarshal(mustMarshal(r), &out)
 	return out
 }
 
-func toResp(m map[string]any) clocksim.Response {
-	var r clocksim.Response
+func toResp(m map[string]any) sim.Response {
+	var r sim.Response
 	_ = json.Unmarshal(mustMarshal(m), &r)
 	return r
 }
 
-// demoLoop lets the simulated clocks check in every poll interval (or a few
-// seconds after a change, as if the interval had come round).
+// demoLoop lets the simulated devices live: they check in every poll
+// interval, a few seconds after a change, and (like a sleeping button or a
+// door sensor) right away when something happens.
 func (s *Server) demoLoop(ctx context.Context) {
-	// clocks seeded in an earlier run come back to life with their settings
 	if ds, err := s.store.DemoDevices(ctx); err == nil {
 		for i, d := range ds {
 			s.demoMu.Lock()
 			if _, ok := s.demo[d.ID]; !ok {
-				c := newDemoClock(d.HWID, int64(i+1), firstNonEmpty(s.cfg.BaseURL, "https://devices.example.com"))
+				dev := newDemoDev(d.Kind, d.HWID, int64(i+1), firstNonEmpty(s.cfg.BaseURL, "https://devices.example.com"))
 				for key, v := range d.Reported {
 					if v != kinds.SecretMask {
-						c.Set(key, v)
+						dev.Set(key, v)
 					}
 				}
-				c.SetRev(d.AppliedRev)
-				s.demo[d.ID] = &demoClock{clock: c, nudge: make(chan struct{}, 1), ring: i == 0}
+				dev.SetRev(d.AppliedRev)
+				s.demo[d.ID] = &demoDev{dev: dev, nudge: make(chan struct{}, 1), ring: d.Name == "Bedroom clock"}
 			}
 			s.demoMu.Unlock()
 		}
 	}
 	s.demoMu.Lock()
-	clocks := map[int64]*demoClock{}
-	for id, c := range s.demo {
-		clocks[id] = c
+	devs := map[int64]*demoDev{}
+	for id, d := range s.demo {
+		devs[id] = d
 	}
 	s.demoMu.Unlock()
-	for id, c := range clocks {
-		go s.runDemoClock(ctx, id, c)
+	for id, d := range devs {
+		go s.runDemoDev(ctx, id, d)
 	}
 }
 
-func (s *Server) runDemoClock(ctx context.Context, id int64, dc *demoClock) {
+func (s *Server) runDemoDev(ctx context.Context, id int64, dd *demoDev) {
 	ringAt := time.Now().Add(2 * time.Minute)
+	last := time.Now()
+	tick := time.NewTicker(20 * time.Second)
+	defer tick.Stop()
 	for {
-		poll := time.Duration(max(dc.clock.PollS, 10)) * time.Second
+		due := false
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(poll):
-		case <-dc.nudge:
+		case <-tick.C:
+			dd.dev.Tick(time.Now())
+			due = dd.dev.HasPending() || time.Since(last) >= time.Duration(max(dd.dev.PollS, 10))*time.Second
+		case <-dd.nudge:
 			select {
 			case <-ctx.Done():
 				return
 			case <-time.After(3 * time.Second):
 			}
+			// a sleeping device only hears the change at its next check-in
+			due = dd.dev.Kind.Power != "battery"
+		}
+		if !due {
+			continue
 		}
 		s.demoMu.Lock()
 		_, alive := s.demo[id]
@@ -191,30 +260,31 @@ func (s *Server) runDemoClock(ctx context.Context, id int64, dc *demoClock) {
 		if err != nil {
 			return
 		}
-		if dc.ring && time.Now().After(ringAt) {
-			dc.clock.SetRinging(true)
+		if dd.ring && time.Now().After(ringAt) {
+			dd.dev.SetRinging(true)
 			ringAt = time.Now().Add(6 * time.Hour)
 		}
-		req := dc.clock.Request()
-		out, err := s.syncDevice(ctx, d, mustMarshal(req), parseReq(req), dc.clock.IP)
+		req := dd.dev.Request()
+		out, err := s.syncDevice(ctx, d, mustMarshal(req), parseReq(req), dd.dev.IP)
+		last = time.Now()
 		if err != nil {
-			s.log.Debug("demo clock", "err", err)
+			s.log.Debug("demo device", "err", err)
 			continue
 		}
-		dc.clock.Apply(toResp(out))
+		dd.dev.Apply(toResp(out))
 	}
 }
 
-// demoNudge makes a simulated clock check in soon after a change.
+// demoNudge makes a simulated device check in soon after a change.
 func (s *Server) demoNudge(id int64) {
 	s.demoMu.Lock()
-	dc, ok := s.demo[id]
+	dd, ok := s.demo[id]
 	s.demoMu.Unlock()
 	if !ok {
 		return
 	}
 	select {
-	case dc.nudge <- struct{}{}:
+	case dd.nudge <- struct{}{}:
 	default:
 	}
 }

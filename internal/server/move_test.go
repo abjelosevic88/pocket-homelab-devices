@@ -104,7 +104,7 @@ func TestMoveLinkScopes(t *testing.T) {
 // person shows up for the other.
 func TestMoveImportsAddOnce(t *testing.T) {
 	a := moveLinks(t)
-	a.expect(201, a.alice, "POST", "/api/v1/devices", map[string]any{"name": "Lake clock", "hw_id": "112233445566"})
+	a.expect(201, a.alice, "POST", "/api/v1/devices", map[string]any{"kind": "ntp-clock", "name": "Lake clock", "hw_id": "112233445566"})
 	code, export := a.raw("pcx_alice_export", "GET", "/api/v1/export.json", "", nil)
 	if code != 200 || !strings.Contains(string(export), "Lake clock") {
 		t.Fatalf("alice's export: %d %s", code, export)
@@ -138,7 +138,7 @@ func TestMoveImportsAddOnce(t *testing.T) {
 // neither restarts or erases a device.
 func TestLinkScopes(t *testing.T) {
 	a := moveLinks(t)
-	m := a.expect(201, a.bob, "POST", "/api/v1/devices", map[string]any{"name": "Bob clock", "hw_id": "665544332211"})
+	m := a.expect(201, a.bob, "POST", "/api/v1/devices", map[string]any{"kind": "ntp-clock", "name": "Bob clock", "hw_id": "665544332211"})
 	id := int64(num(m["device"].(map[string]any), "id"))
 	p := fmt.Sprintf("/api/v1/devices/%d", id)
 	read, write := "pcx_bob_read", "pcx_bob_write"

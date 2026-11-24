@@ -84,12 +84,22 @@ func TestTableMatchesProtocol(t *testing.T) {
 	}
 }
 
-// Every row: the default (when the device's own default is valid), both
-// ends of the range, one step outside, and a value of the wrong type.
+// Every row of every kind: the default (when the device's own default is
+// valid), both ends of the range, one step outside, and a value of the wrong type.
 func TestEveryRow(t *testing.T) {
-	k := clock(t)
-	for _, s := range k.Settings {
-		t.Run(s.Key, func(t *testing.T) {
+	if len(All()) < 8 {
+		t.Fatalf("%d kinds, want the clock and the seven examples", len(All()))
+	}
+	for _, k := range All() {
+		for _, s := range k.Settings {
+			t.Run(k.ID+"/"+s.Key, func(t *testing.T) { checkRow(t, s) })
+		}
+	}
+}
+
+func checkRow(t *testing.T, s Setting) {
+	{
+		{
 			ok := func(v string) {
 				t.Helper()
 				if _, err := s.Normalize(v); err != nil {
@@ -120,6 +130,12 @@ func TestEveryRow(t *testing.T) {
 				no("1.5")
 				no("ten")
 				no("")
+			case "decimal":
+				ok(strconv.Itoa(int(*s.Min)))
+				ok(strconv.Itoa(int(*s.Max)))
+				no(strconv.Itoa(int(*s.Max) + 1))
+				no("1." + strings.Repeat("5", s.Decimals+1))
+				no("warm")
 			case "coord":
 				ok(strconv.Itoa(int(*s.Min)))
 				ok(strconv.Itoa(int(*s.Max)))
@@ -181,7 +197,7 @@ func TestEveryRow(t *testing.T) {
 				}
 				no("two\nlines")
 			}
-		})
+		}
 	}
 }
 
@@ -240,5 +256,84 @@ func TestEqualAndHWID(t *testing.T) {
 	}
 	if _, err := k.NormalizeHWID("A1B2C3"); err == nil {
 		t.Error("short MAC accepted")
+	}
+}
+
+// Every kind: the server's own settings are locked, secrets secret, the
+// setup lines connect it, and every reading, alert and event is well formed.
+func TestEveryKind(t *testing.T) {
+	for _, k := range All() {
+		for _, key := range []string{"remote", "server_url", "device_token"} {
+			if s, ok := k.Setting(key); !ok || !s.Locked {
+				t.Errorf("%s: %s must exist and be locked", k.ID, key)
+			}
+		}
+		for _, key := range []string{"pass", "device_token"} {
+			if s, ok := k.Setting(key); !ok || !s.Secret {
+				t.Errorf("%s: %s must be secret", k.ID, key)
+			}
+		}
+		if len(k.Setup) != 3 || k.Category == "" || k.Power == "" || k.Icon == "" || len(k.Readings) == 0 {
+			t.Errorf("%s: setup, category, power, icon or readings missing", k.ID)
+		}
+		if k.Poll.Min < 10 || k.Poll.Default < k.Poll.Min || k.Poll.Default > k.Poll.Max {
+			t.Errorf("%s: poll %+v", k.ID, k.Poll)
+		}
+		if p, ok := k.Setting("remote_poll_s"); !ok || int(*p.Min) != k.Poll.Min || int(*p.Max) != k.Poll.Max {
+			t.Errorf("%s: remote_poll_s must match the poll range", k.ID)
+		}
+		if _, err := k.NormalizeHWID(k.HWID.Example); err != nil {
+			t.Errorf("%s: example id %q: %v", k.ID, k.HWID.Example, err)
+		}
+	}
+}
+
+func TestReadingsAndAlerts(t *testing.T) {
+	leak, _ := Get("leak-sensor")
+	status := map[string]any{"leak": map[string]any{"wet": true}, "climate": map[string]any{"temp_c": 2.4}, "battery": map[string]any{"pct": 80.0}}
+	v := leak.Values(status, map[string]string{"alert_freeze": "off", "freeze_c": "3.0"})
+	if v["leak"] != true || v["temp_c"] != 2.4 || v["battery"] != 80.0 {
+		t.Fatalf("values %v", v)
+	}
+	if got := leak.ActiveAlerts(v, map[string]string{"alert_freeze": "off", "freeze_c": "3.0"}); strings.Join(got, ",") != "water" {
+		t.Fatalf("alerts with frost off: %v", got)
+	}
+	if got := leak.ActiveAlerts(v, map[string]string{"alert_freeze": "on", "freeze_c": "3.0"}); strings.Join(got, ",") != "water,freeze" {
+		t.Fatalf("alerts with frost on: %v", got)
+	}
+	clock, _ := Get("ntp-clock")
+	cv := clock.Values(map[string]any{"alarm": map[string]any{"ringing": true}}, map[string]string{"alarm": "on", "alarm_time": "06:30"})
+	if cv["alarm"] != true || cv["alarm_time"] != "06:30" || cv["ringing"] != true {
+		t.Fatalf("clock values %v", cv)
+	}
+	if got := clock.ActiveAlerts(cv, nil); strings.Join(got, ",") != "ringing" {
+		t.Fatalf("clock alerts %v", got)
+	}
+	plug, _ := Get("smart-plug")
+	if got := plug.ActiveAlerts(map[string]any{"power_w": 3600.0}, map[string]string{"max_w": "3500"}); len(got) != 1 {
+		t.Fatalf("overload %v", got)
+	}
+	if _, err := plug.Normalize("max_w", "4000"); err == nil {
+		t.Fatal("4000 W accepted")
+	}
+	cs, _ := Get("climate-sensor")
+	if n, err := cs.Normalize("temp_offset", "-0.0"); err != nil || n != "0.0" {
+		t.Fatalf("temp_offset -0.0: %q %v", n, err)
+	}
+	if n, err := cs.Normalize("temp_offset", "1,5"); err != nil || n != "1.5" {
+		t.Fatalf("temp_offset 1,5: %q %v", n, err)
+	}
+}
+
+func TestParseRejectsBrokenKinds(t *testing.T) {
+	for name, body := range map[string]string{
+		"unknown reading in alert": `{"id":"x","name":"X","groups":[{"id":"g","label":"G"}],"readings":[{"key":"a","path":"a","label":"A","type":"number"}],"alerts":[{"id":"z","reading":"b","op":">","label":"Z","level":"warning"}]}`,
+		"bool alert without bool":  `{"id":"x","name":"X","groups":[],"readings":[{"key":"a","path":"a","label":"A","type":"bool"}],"alerts":[{"id":"z","reading":"a","op":"=","label":"Z","level":"warning"}]}`,
+		"setting in unknown group": `{"id":"x","name":"X","groups":[],"settings":[{"key":"a","type":"bool","group":"nope","default":"on"}]}`,
+		"reading of no setting":    `{"id":"x","name":"X","groups":[],"readings":[{"key":"a","path":"config.nope","label":"A","type":"text"}]}`,
+	} {
+		if _, err := Parse([]byte(body)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }
