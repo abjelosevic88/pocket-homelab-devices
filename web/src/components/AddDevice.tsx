@@ -39,7 +39,7 @@ export function AddDeviceModal({ onClose, onAdded }: { onClose: () => void; onAd
   return (
     <Modal title="Add a device" onClose={onClose} size="sm">
       {!kinds ? <Loading /> : (
-        <form onSubmit={submit} className="grid" style={{ gap: 14 }}>
+        <form onSubmit={submit} className="grid form-stack">
           {kinds.length > 1 && <Field group label="Kind"><Segmented value={kind?.id || ''} onChange={v => setF({ ...f, kind: v })} options={kinds.map(k => ({ value: k.id, label: k.name }))} /></Field>}
           {kind && <div className="kind-intro"><Icon name="alarm-clock" size={18} /><p className="small muted">{kind.summary}</p></div>}
           <Field label="Name"><input autoFocus value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder={kind ? `${kind.name} in the bedroom` : ''} maxLength={80} /></Field>

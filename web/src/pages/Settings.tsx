@@ -258,7 +258,7 @@ function UserModal({ user, local, onClose, onSaved }: { user: Partial<User>; loc
   }
   return (
     <Modal title={user.id ? 'Edit person' : 'Add a person'} onClose={onClose} size="sm">
-      <form onSubmit={save} className="grid" style={{ gap: 14 }}>
+      <form onSubmit={save} className="grid form-stack">
         <Field label="Name"><input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} autoFocus required maxLength={60} /></Field>
         <Field label="Email" help="Used to sign in."><input type="email" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} required /></Field>
         {local && <Field label={user.id ? 'New password (leave empty to keep)' : 'Password'} help="At least 8 characters."><input type="password" value={f.password} onChange={e => setF({ ...f, password: e.target.value })} minLength={user.id ? 0 : 8} required={!user.id} autoComplete="new-password" /></Field>}

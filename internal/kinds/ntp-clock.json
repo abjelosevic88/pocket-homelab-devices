@@ -6,7 +6,7 @@
  "icon": "clock",
  "hw_id": {
   "label": "WiFi MAC address",
-  "help": "12 characters, printed by the clock at start-up and by `wifi` on the serial console.",
+  "help": "12 characters, printed by the clock at start-up and by the “wifi” command on the serial console.",
   "example": "A1B2C3D4E5F6",
   "format": "mac12"
  },

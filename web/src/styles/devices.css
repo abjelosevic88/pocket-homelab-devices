@@ -281,3 +281,8 @@ span.block { display: block; }
   .cmd-row { flex-wrap: wrap; }
   .save-bar { bottom: 84px; }
 }
+
+/* dialogs: fields with room between them */
+form.grid, div.grid { display: grid; }
+.form-stack { gap: 18px; }
+.form-stack .form-actions { margin-top: 6px; }
