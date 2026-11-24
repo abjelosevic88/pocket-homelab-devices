@@ -1,0 +1,753 @@
+{
+ "id": "ntp-clock",
+ "name": "NTP Clock",
+ "protocol": "pocket-sync/1",
+ "summary": "An ESP32-C3 desk clock with a 7-segment or LCD display, alarm, hourly chime, light sensor and outdoor temperature. It gets its time from the internet and checks in here for its settings.",
+ "icon": "clock",
+ "hw_id": {
+  "label": "WiFi MAC address",
+  "help": "12 characters, printed by the clock at start-up and by `wifi` on the serial console.",
+  "example": "A1B2C3D4E5F6",
+  "format": "mac12"
+ },
+ "token": {
+  "min": 32,
+  "max": 64
+ },
+ "poll": {
+  "default": 30,
+  "min": 10,
+  "max": 3600
+ },
+ "setup": [
+  "cfg set server_url {url}",
+  "cfg set device_token {token}",
+  "cfg set remote on"
+ ],
+ "setup_help": "Connect the clock's USB cable, open its serial console and paste these three lines. The clock checks in within a minute.",
+ "groups": [
+  {
+   "id": "wifi",
+   "label": "WiFi"
+  },
+  {
+   "id": "time",
+   "label": "Time"
+  },
+  {
+   "id": "display",
+   "label": "Display"
+  },
+  {
+   "id": "pages",
+   "label": "Pages and splash"
+  },
+  {
+   "id": "weather",
+   "label": "Weather"
+  },
+  {
+   "id": "alarm",
+   "label": "Alarm"
+  },
+  {
+   "id": "chime",
+   "label": "Chime and beeps"
+  },
+  {
+   "id": "system",
+   "label": "System"
+  },
+  {
+   "id": "server",
+   "label": "Server"
+  }
+ ],
+ "settings": [
+  {
+   "key": "ssid",
+   "type": "text",
+   "group": "wifi",
+   "label": "WiFi network",
+   "help": "The name of the WiFi network the clock joins.",
+   "default": "",
+   "min": 1,
+   "max": 32,
+   "warn": "wifi"
+  },
+  {
+   "key": "pass",
+   "type": "text",
+   "group": "wifi",
+   "label": "WiFi password",
+   "help": "Empty for an open network, otherwise 8 to 64 characters. Never shown again once saved.",
+   "default": "",
+   "min": 8,
+   "max": 64,
+   "allow_empty": true,
+   "secret": true,
+   "warn": "wifi"
+  },
+  {
+   "key": "hostname",
+   "type": "text",
+   "group": "wifi",
+   "label": "Name on the network",
+   "help": "The name the clock gives your router (DHCP host name).",
+   "default": "apx-ntp-clock",
+   "min": 1,
+   "max": 32,
+   "format": "hostname"
+  },
+  {
+   "key": "wifi_tx",
+   "type": "number",
+   "group": "wifi",
+   "label": "WiFi power",
+   "help": "Transmit power in dBm. Lower it if the clock sits right next to the router.",
+   "default": "20",
+   "min": 2,
+   "max": 20,
+   "unit": "dBm"
+  },
+  {
+   "key": "ap_fallback_n",
+   "type": "number",
+   "group": "wifi",
+   "label": "Refused logins before setup mode",
+   "help": "After this many refused WiFi logins the clock opens its own setup network. 0 = never.",
+   "default": "3",
+   "min": 0,
+   "max": 100
+  },
+  {
+   "key": "ntp_server",
+   "type": "text",
+   "group": "time",
+   "label": "Time server",
+   "help": "The NTP server the clock asks for the time.",
+   "default": "pool.ntp.org",
+   "min": 1,
+   "max": 64,
+   "format": "host"
+  },
+  {
+   "key": "ntp_interval",
+   "type": "number",
+   "group": "time",
+   "label": "Ask for the time every",
+   "help": "Minutes between two time syncs.",
+   "default": "60",
+   "min": 15,
+   "max": 1440,
+   "unit": "min"
+  },
+  {
+   "key": "sync_timeout",
+   "type": "number",
+   "group": "time",
+   "label": "Time is stale after",
+   "help": "Minutes without a successful sync before the clock shows the time as stale.",
+   "default": "180",
+   "min": 15,
+   "max": 10080,
+   "unit": "min"
+  },
+  {
+   "key": "tz",
+   "type": "text",
+   "group": "time",
+   "label": "Time zone",
+   "help": "A POSIX time zone string. Pick a place from the list or type your own.",
+   "default": "UTC0",
+   "min": 1,
+   "max": 64,
+   "format": "tz",
+   "presets": [
+    {
+     "label": "UTC",
+     "value": "UTC0"
+    },
+    {
+     "label": "London, Dublin",
+     "value": "GMT0BST,M3.5.0/1,M10.5.0"
+    },
+    {
+     "label": "Lisbon",
+     "value": "WET0WEST,M3.5.0/1,M10.5.0"
+    },
+    {
+     "label": "Central Europe (Banja Luka, Sarajevo, Belgrade, Zagreb, Berlin, Paris, Rome, Vienna)",
+     "value": "CET-1CEST,M3.5.0,M10.5.0/3"
+    },
+    {
+     "label": "Eastern Europe (Athens, Sofia, Bucharest, Helsinki, Kyiv)",
+     "value": "EET-2EEST,M3.5.0/3,M10.5.0/4"
+    },
+    {
+     "label": "Istanbul",
+     "value": "TRT-3"
+    },
+    {
+     "label": "Moscow",
+     "value": "MSK-3"
+    },
+    {
+     "label": "Dubai",
+     "value": "GST-4"
+    },
+    {
+     "label": "India",
+     "value": "IST-5:30"
+    },
+    {
+     "label": "Bangkok",
+     "value": "ICT-7"
+    },
+    {
+     "label": "Singapore",
+     "value": "SGT-8"
+    },
+    {
+     "label": "China",
+     "value": "CST-8"
+    },
+    {
+     "label": "Tokyo",
+     "value": "JST-9"
+    },
+    {
+     "label": "Sydney, Melbourne",
+     "value": "AEST-10AEDT,M10.1.0,M4.1.0/3"
+    },
+    {
+     "label": "Brisbane",
+     "value": "AEST-10"
+    },
+    {
+     "label": "Auckland",
+     "value": "NZST-12NZDT,M9.5.0,M4.1.0/3"
+    },
+    {
+     "label": "Johannesburg",
+     "value": "SAST-2"
+    },
+    {
+     "label": "New York, Toronto",
+     "value": "EST5EDT,M3.2.0,M11.1.0"
+    },
+    {
+     "label": "Chicago",
+     "value": "CST6CDT,M3.2.0,M11.1.0"
+    },
+    {
+     "label": "Denver",
+     "value": "MST7MDT,M3.2.0,M11.1.0"
+    },
+    {
+     "label": "Phoenix",
+     "value": "MST7"
+    },
+    {
+     "label": "Los Angeles, Vancouver",
+     "value": "PST8PDT,M3.2.0,M11.1.0"
+    },
+    {
+     "label": "Anchorage",
+     "value": "AKST9AKDT,M3.2.0,M11.1.0"
+    },
+    {
+     "label": "Honolulu",
+     "value": "HST10"
+    },
+    {
+     "label": "Mexico City",
+     "value": "CST6"
+    },
+    {
+     "label": "São Paulo",
+     "value": "BRT3"
+    },
+    {
+     "label": "Buenos Aires",
+     "value": "ART3"
+    }
+   ]
+  },
+  {
+   "key": "fmt24h",
+   "type": "bool",
+   "group": "time",
+   "label": "24-hour clock",
+   "help": "Off shows a 12-hour clock.",
+   "default": "on"
+  },
+  {
+   "key": "show_seconds",
+   "type": "bool",
+   "group": "time",
+   "label": "Show seconds",
+   "help": "",
+   "default": "on"
+  },
+  {
+   "key": "leading_zero",
+   "type": "bool",
+   "group": "time",
+   "label": "Leading zero",
+   "help": "Show 07 instead of 7 for the hour.",
+   "default": "on"
+  },
+  {
+   "key": "date_fmt",
+   "type": "number",
+   "group": "time",
+   "label": "Date order",
+   "help": "",
+   "default": "0",
+   "min": 0,
+   "max": 2,
+   "options": [
+    {
+     "value": "0",
+     "label": "DD.MM.YY"
+    },
+    {
+     "value": "1",
+     "label": "MM.DD.YY"
+    },
+    {
+     "value": "2",
+     "label": "YY.MM.DD"
+    }
+   ]
+  },
+  {
+   "key": "display",
+   "type": "enum",
+   "group": "display",
+   "label": "Display type",
+   "help": "The kind of display wired to the clock. The clock must restart to use a new one.",
+   "default": "seg7",
+   "options": [
+    {
+     "value": "seg7",
+     "label": "7-segment (6 digits)"
+    },
+    {
+     "value": "lcd",
+     "label": "LCD 16×2"
+    }
+   ],
+   "reboot": true
+  },
+  {
+   "key": "brightness",
+   "type": "number",
+   "group": "display",
+   "label": "Brightness",
+   "help": "Brightness when automatic brightness is off.",
+   "default": "100",
+   "min": 1,
+   "max": 100,
+   "unit": "%"
+  },
+  {
+   "key": "bright_auto",
+   "type": "bool",
+   "group": "display",
+   "label": "Automatic brightness",
+   "help": "Follow the light sensor.",
+   "default": "on"
+  },
+  {
+   "key": "bright_min",
+   "type": "number",
+   "group": "display",
+   "label": "Lowest automatic brightness",
+   "help": "",
+   "default": "10",
+   "min": 1,
+   "max": 100,
+   "unit": "%"
+  },
+  {
+   "key": "ldr_dark_mv",
+   "type": "number",
+   "group": "display",
+   "label": "Sensor voltage when dark",
+   "help": "Light sensor voltage of the lowest brightness level.",
+   "default": "60",
+   "min": 1,
+   "max": 3300,
+   "unit": "mV",
+   "advanced": true
+  },
+  {
+   "key": "ldr_bright_mv",
+   "type": "number",
+   "group": "display",
+   "label": "Sensor voltage when bright",
+   "help": "Light sensor voltage of the highest brightness level.",
+   "default": "1800",
+   "min": 2,
+   "max": 3300,
+   "unit": "mV",
+   "advanced": true
+  },
+  {
+   "key": "splash_text",
+   "type": "text",
+   "group": "pages",
+   "label": "Start-up text",
+   "help": "Shown when the clock starts. Up to 64 characters; the 7-segment display can only show some letters.",
+   "default": "HELLO",
+   "min": 0,
+   "max": 64,
+   "format": "printable"
+  },
+  {
+   "key": "splash_secs",
+   "type": "number",
+   "group": "pages",
+   "label": "Start-up text at least",
+   "help": "",
+   "default": "5",
+   "min": 1,
+   "max": 600,
+   "unit": "s"
+  },
+  {
+   "key": "scroll_ms",
+   "type": "number",
+   "group": "pages",
+   "label": "Scroll step",
+   "help": "How fast long text scrolls: milliseconds per step.",
+   "default": "300",
+   "min": 50,
+   "max": 2000,
+   "unit": "ms"
+  },
+  {
+   "key": "clock_secs",
+   "type": "number",
+   "group": "pages",
+   "label": "Clock page",
+   "help": "How long the time is shown before the next page (7-segment display).",
+   "default": "30",
+   "min": 1,
+   "max": 3600,
+   "unit": "s"
+  },
+  {
+   "key": "date_secs",
+   "type": "number",
+   "group": "pages",
+   "label": "Date page",
+   "help": "0 = never show the date.",
+   "default": "5",
+   "min": 0,
+   "max": 3600,
+   "unit": "s"
+  },
+  {
+   "key": "temp_secs",
+   "type": "number",
+   "group": "pages",
+   "label": "Temperature page",
+   "help": "0 = never show the temperature.",
+   "default": "3",
+   "min": 0,
+   "max": 3600,
+   "unit": "s"
+  },
+  {
+   "key": "alarm_page_secs",
+   "type": "number",
+   "group": "pages",
+   "label": "Alarm time page",
+   "help": "0 = never show the alarm time.",
+   "default": "3",
+   "min": 0,
+   "max": 3600,
+   "unit": "s"
+  },
+  {
+   "key": "place",
+   "type": "text",
+   "group": "weather",
+   "label": "Place name",
+   "help": "The name shown for the outdoor temperature.",
+   "default": "",
+   "min": 0,
+   "max": 47
+  },
+  {
+   "key": "lat",
+   "type": "coord",
+   "group": "weather",
+   "label": "Latitude",
+   "help": "Decimal degrees, north is positive.",
+   "default": "0",
+   "min": -90,
+   "max": 90
+  },
+  {
+   "key": "lon",
+   "type": "coord",
+   "group": "weather",
+   "label": "Longitude",
+   "help": "Decimal degrees, east is positive.",
+   "default": "0",
+   "min": -180,
+   "max": 180
+  },
+  {
+   "key": "temp_unit",
+   "type": "enum",
+   "group": "weather",
+   "label": "Temperature unit",
+   "help": "",
+   "default": "c",
+   "options": [
+    {
+     "value": "c",
+     "label": "°C"
+    },
+    {
+     "value": "f",
+     "label": "°F"
+    }
+   ]
+  },
+  {
+   "key": "weather_poll",
+   "type": "number",
+   "group": "weather",
+   "label": "Fetch the temperature every",
+   "help": "",
+   "default": "30",
+   "min": 5,
+   "max": 1440,
+   "unit": "min"
+  },
+  {
+   "key": "alarm",
+   "type": "bool",
+   "group": "alarm",
+   "label": "Alarm on",
+   "help": "",
+   "default": "off"
+  },
+  {
+   "key": "alarm_time",
+   "type": "hhmm",
+   "group": "alarm",
+   "label": "Wake-up time",
+   "help": "",
+   "default": "07:00"
+  },
+  {
+   "key": "alarm_days",
+   "type": "days",
+   "group": "alarm",
+   "label": "Days",
+   "help": "",
+   "default": "all"
+  },
+  {
+   "key": "alarm_secs",
+   "type": "number",
+   "group": "alarm",
+   "label": "Ring for",
+   "help": "",
+   "default": "60",
+   "min": 1,
+   "max": 600,
+   "unit": "s"
+  },
+  {
+   "key": "alarm_sound",
+   "type": "number",
+   "group": "alarm",
+   "label": "Sound",
+   "help": "One of the clock's seven sound patterns.",
+   "default": "0",
+   "min": 0,
+   "max": 6,
+   "options": [
+    {
+     "value": "0",
+     "label": "Sound 1"
+    },
+    {
+     "value": "1",
+     "label": "Sound 2"
+    },
+    {
+     "value": "2",
+     "label": "Sound 3"
+    },
+    {
+     "value": "3",
+     "label": "Sound 4"
+    },
+    {
+     "value": "4",
+     "label": "Sound 5"
+    },
+    {
+     "value": "5",
+     "label": "Sound 6"
+    },
+    {
+     "value": "6",
+     "label": "Sound 7"
+    }
+   ]
+  },
+  {
+   "key": "chime",
+   "type": "bool",
+   "group": "chime",
+   "label": "Hourly chime",
+   "help": "Beep every full hour.",
+   "default": "on"
+  },
+  {
+   "key": "status_beep",
+   "type": "bool",
+   "group": "chime",
+   "label": "Status beeps",
+   "help": "Beeps when WiFi connects and the time syncs.",
+   "default": "on"
+  },
+  {
+   "key": "quiet_from",
+   "type": "hhmm",
+   "group": "chime",
+   "label": "Quiet from",
+   "help": "No chime and no beeps from this time…",
+   "default": "22:00"
+  },
+  {
+   "key": "quiet_to",
+   "type": "hhmm",
+   "group": "chime",
+   "label": "Quiet until",
+   "help": "…until this time.",
+   "default": "07:00"
+  },
+  {
+   "key": "log",
+   "type": "bool",
+   "group": "system",
+   "label": "Log on the serial console",
+   "help": "",
+   "default": "off",
+   "advanced": true
+  },
+  {
+   "key": "remote",
+   "type": "bool",
+   "group": "server",
+   "label": "Talks to this server",
+   "help": "Switched on at the clock itself (cfg set remote on). The server never changes it.",
+   "default": "off",
+   "locked": true
+  },
+  {
+   "key": "server_url",
+   "type": "text",
+   "group": "server",
+   "label": "Server address",
+   "help": "Typed into the clock. The server never changes it.",
+   "default": "",
+   "min": 1,
+   "max": 96,
+   "format": "https_url",
+   "locked": true
+  },
+  {
+   "key": "device_token",
+   "type": "text",
+   "group": "server",
+   "label": "Device token",
+   "help": "Typed into the clock. The server never changes it.",
+   "default": "",
+   "min": 32,
+   "max": 64,
+   "secret": true,
+   "locked": true
+  },
+  {
+   "key": "remote_poll_s",
+   "type": "number",
+   "group": "server",
+   "label": "Check in every (fallback)",
+   "help": "Used only when the server gives no interval.",
+   "default": "30",
+   "min": 10,
+   "max": 3600,
+   "unit": "s",
+   "advanced": true
+  }
+ ],
+ "commands": [
+  {
+   "name": "sync_time",
+   "label": "Sync the time now",
+   "help": "Ask the time server right away."
+  },
+  {
+   "name": "weather_refresh",
+   "label": "Refresh the temperature",
+   "help": "Fetch the outdoor temperature right away."
+  },
+  {
+   "name": "alarm_stop",
+   "label": "Stop the alarm",
+   "help": "Silence a ringing alarm."
+  },
+  {
+   "name": "alarm_test",
+   "label": "Play an alarm sound",
+   "help": "Play one of the seven sounds once.",
+   "args": [
+    {
+     "name": "n",
+     "label": "Sound",
+     "type": "number",
+     "min": 0,
+     "max": 6,
+     "default": 0
+    }
+   ]
+  },
+  {
+   "name": "reboot",
+   "label": "Restart",
+   "help": "The clock restarts after its next check-in.",
+   "danger": 1
+  },
+  {
+   "name": "setup_mode",
+   "label": "Open setup mode",
+   "help": "The clock restarts into its own WiFi network for the setup page. It stops checking in here until it is back on your WiFi.",
+   "danger": 1
+  },
+  {
+   "name": "cfg_reset",
+   "label": "Erase all settings",
+   "help": "The clock forgets everything, including the WiFi login and this server. You will have to set it up again at the clock.",
+   "danger": 2
+  }
+ ],
+ "status": {
+  "temp_path": "weather.temp_c",
+  "rssi_path": "wifi.rssi"
+ },
+ "warnings": {
+  "wifi": "If the clock cannot log in to the new network it opens its own setup network after a few refused logins (\"Refused logins before setup mode\")."
+ }
+}

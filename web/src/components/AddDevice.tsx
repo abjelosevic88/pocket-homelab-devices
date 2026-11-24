@@ -1,0 +1,79 @@
+// Add a device: kind, name, hardware id, place — then the token, shown once,
+// with the exact console lines to paste into the device.
+import React, { useState } from 'react'
+import { api, V1 } from '../lib/api'
+import { useKinds } from '../lib/devices'
+import type { DeviceDetail } from '../lib/types'
+import { Icon } from './icons'
+import { Select } from './Select'
+import { Field, Loading, Modal, Segmented, useToast } from './ui'
+import { useDevices } from './Layout'
+
+export function AddDeviceModal({ onClose, onAdded }: { onClose: () => void; onAdded: (d: DeviceDetail) => void }) {
+  const kinds = useKinds()
+  const { devices } = useDevices()
+  const { toast } = useToast()
+  const [f, setF] = useState({ kind: '', name: '', hw_id: '', location: '' })
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [made, setMade] = useState<DeviceDetail | null>(null)
+  const kind = kinds?.find(k => k.id === (f.kind || kinds[0]?.id))
+  const places = Array.from(new Set((devices || []).map(d => d.location).filter(Boolean))).sort()
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!kind) return
+    setBusy(true); setErr('')
+    try {
+      const d = await api.post<DeviceDetail>(`${V1}/devices`, { ...f, kind: kind.id, name: f.name.trim() || kind.name })
+      setMade(d)
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+  if (made) {
+    return (
+      <Modal title={`Connect ${made.device.name}`} onClose={() => onAdded(made)} size="lg"
+        footer={<button type="button" className="btn primary" onClick={() => onAdded(made)}>Done, I pasted them</button>}>
+        <SetupSteps detail={made} onCopied={() => toast('Copied')} />
+      </Modal>
+    )
+  }
+  return (
+    <Modal title="Add a device" onClose={onClose} size="sm">
+      {!kinds ? <Loading /> : (
+        <form onSubmit={submit} className="grid" style={{ gap: 14 }}>
+          {kinds.length > 1 && <Field group label="Kind"><Segmented value={kind?.id || ''} onChange={v => setF({ ...f, kind: v })} options={kinds.map(k => ({ value: k.id, label: k.name }))} /></Field>}
+          {kind && <div className="kind-intro"><Icon name="alarm-clock" size={18} /><p className="small muted">{kind.summary}</p></div>}
+          <Field label="Name"><input autoFocus value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder={kind ? `${kind.name} in the bedroom` : ''} maxLength={80} /></Field>
+          <Field label={kind?.hw_id.label || 'Hardware id'} help={kind?.hw_id.help}>
+            <input value={f.hw_id} onChange={e => setF({ ...f, hw_id: e.target.value })} placeholder={kind?.hw_id.example} spellCheck={false} autoCapitalize="characters" autoComplete="off" className="mono" required />
+          </Field>
+          <Field group label="Place" help="Where it stands. Devices are grouped by place.">
+            <Select ariaLabel="Place" value={f.location} onChange={v => setF({ ...f, location: v })} options={places.map(p => ({ value: p, label: p }))} placeholder="Bedroom, Kitchen…"
+              onCreate={label => label.trim()} createLabel="Use" clearLabel="No place" />
+          </Field>
+          {err && <p className="bad small">{err}</p>}
+          <div className="form-actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy || !f.hw_id.trim()}>{busy ? 'Adding…' : 'Add and get the token'}</button></div>
+        </form>
+      )}
+    </Modal>
+  )
+}
+
+/** The token (once) and the lines for the device's console. */
+export function SetupSteps({ detail, onCopied }: { detail: DeviceDetail; onCopied: () => void }) {
+  const lines = detail.setup || []
+  const copy = (t: string) => { navigator.clipboard?.writeText(t).then(onCopied).catch(() => {}) }
+  const insecure = !detail.server_url.startsWith('https://')
+  return (
+    <div className="stack">
+      <p>{detail.setup_help}</p>
+      <div className="console">
+        {lines.map(l => (
+          <div key={l} className="console-line"><code>{l}</code><button type="button" className="btn ghost sm icon-only" aria-label="Copy this line" title="Copy this line" onClick={() => copy(l)}><Icon name="copy" size={14} /></button></div>
+        ))}
+      </div>
+      <div className="row wrap"><button type="button" className="btn" onClick={() => copy(lines.join('\n'))}><Icon name="copy" size={15} />Copy all three lines</button></div>
+      <div className="callout warn"><Icon name="key" size={15} /><div>The token is shown <b>only now</b>. If you lose it, make a new one on the device’s Connection tab; the old one stops working at once.</div></div>
+      {insecure && <div className="callout danger"><Icon name="alert" size={15} /><div>The address is not https://. The clock only talks to a server with a real certificate: set the address for your devices in Settings → General.</div></div>}
+    </div>
+  )
+}

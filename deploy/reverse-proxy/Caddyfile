@@ -1,0 +1,7 @@
+# Pocket Devices behind Caddy. Homepage widgets and linked apps send their own
+# bearer token to /api/*. Devices call POST /api/v1/device/sync: the certificate
+# must come from a public authority (Caddy's automatic Let's Encrypt is fine),
+# and the host must be reachable from the devices' WiFi.
+devices.example.com {
+	reverse_proxy pocket-devices:8080
+}

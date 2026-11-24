@@ -1,0 +1,23 @@
+[Unit]
+Description=Pocket Devices — breathe, sit, notice
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pocket-devices
+Group=pocket-devices
+ExecStart=/usr/local/bin/pocket-devices
+Environment=DATA_DIR=/var/lib/pocket-devices
+Environment=PORT=8080
+Environment=BASE_URL=https://devices.example.com
+Environment=SECURE_COOKIES=true
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pocket-devices
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
